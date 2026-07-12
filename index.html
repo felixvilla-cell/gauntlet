@@ -344,7 +344,11 @@ function loop(ts) {
   // coins: everyone gets a small pull so near-misses still collect (the
   // finger covers the orb on a phone -- exact alignment shouldn't be the
   // skill); the MAGNET boost is the same idea with real range.
-  const pullR = G.magnet ? 95 : 42, pullV = G.magnet ? 240 : 170;
+  // MAGNET pull must always beat the world scroll, or a coin that slips past
+  // gets dragged away mid-pull and never arrives (Felix, 2026-07-12): its pull
+  // is world speed plus a real closing speed, so caught means collected.
+  const pullR = G.magnet ? 110 : 42;
+  const pullV = G.magnet ? worldSpeed() + 230 : 170;
   for (const c of G.coinDots) {
     if (c.got) continue;
     const dx = G.px - c.x, dy = py - c.y, d = Math.hypot(dx, dy);
