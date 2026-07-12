@@ -198,14 +198,15 @@
 /* ================= CONFIG / ROSTER ================= */
 // GAUNTLET_CONFIG comes from config.js: { firebase: {projectId, apiKey}, room: "" }
 const CFG = window.GAUNTLET_CONFIG || { firebase: null, room: "" };
-// Auto handicap, invisible: younger players face a slower world and score a
-// bonus multiplier. One leaderboard, everyone sees the same numbers.
+// Same difficulty for everyone (Felix's call 2026-07-12 -- the auto handicap
+// for the younger boys is retired; speed/mult stay as knobs if he changes
+// his mind).
 const ROSTER = [
   { id: "papa",   name: "PAPI",    speed: 1.00, mult: 1.00 },
   { id: "adelina",name: "ADELINA", speed: 1.00, mult: 1.00 },
   { id: "fd",     name: "FELIX D", speed: 1.00, mult: 1.00 },
-  { id: "oliver", name: "OLIVER",  speed: 0.88, mult: 1.35 },
-  { id: "gray",   name: "GRAYSON", speed: 0.78, mult: 1.65 },
+  { id: "oliver", name: "OLIVER",  speed: 1.00, mult: 1.00 },
+  { id: "gray",   name: "GRAYSON", speed: 1.00, mult: 1.00 },
 ];
 const BOOSTS = [
   { id: "shield", name: "SHIELD", desc: "+1 hit" },
