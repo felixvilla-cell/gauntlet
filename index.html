@@ -6,6 +6,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>DAILY GAUNTLET</title>
+<link rel="icon" type="image/png" sizes="64x64" href="icon-64.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#07060f">
+<meta property="og:title" content="DAILY GAUNTLET">
+<meta property="og:description" content="Villa family duel. New maze every day. 3 runs. No mercy.">
+<meta property="og:image" content="https://felixvilla-cell.github.io/gauntlet/og.png">
+<meta property="og:url" content="https://felixvilla-cell.github.io/gauntlet/">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   :root {
     --bg: #07060f;
@@ -44,6 +53,10 @@
   }
   h1 span { color: var(--magenta); text-shadow: 0 0 12px var(--magenta), 0 0 40px rgba(255,46,166,.4); }
   .date { color: var(--dim); font-size: 12px; letter-spacing: 2px; margin-bottom: 14px; }
+  .twist {
+    color: var(--gold); font-size: 12px; letter-spacing: 2px; margin: -8px 0 14px;
+    text-shadow: 0 0 10px rgba(255,201,60,.5);
+  }
   .panel {
     width: 100%; max-width: 360px; background: var(--panel);
     border: 1px solid rgba(25,227,255,.25); border-radius: 10px;
@@ -137,6 +150,7 @@
   <div id="home" class="screen">
     <h1>DAILY<span>GAUNTLET</span></h1>
     <p class="date" id="homeDate"></p>
+    <p class="twist" id="homeMod"></p>
     <div class="panel" id="playerPanel">
       <h2>WHO ARE YOU?</h2>
       <div class="roster" id="roster"></div>
@@ -195,6 +209,35 @@ const BOOSTS = [
 ];
 const MAX_RUNS = 3, RUN_SECS = 90;
 
+// Daily modifier: the date picks one twist for EVERYONE (separate seed stream
+// from the maze layout, so adding mods never reshuffles the course).
+const MODS = [
+  { id: "classic", name: "CLASSIC",       desc: "no twist. pure gauntlet" },
+  { id: "rush",    name: "COIN RUSH",     desc: "coins everywhere, worth double" },
+  { id: "fog",     name: "FOG",           desc: "you only see whats near you" },
+  { id: "mirror",  name: "MIRROR",        desc: "left is right, right is left" },
+  { id: "turbo",   name: "TURBO",         desc: "faster maze, 25% score bonus" },
+  { id: "drift",   name: "MOVING WALLS",  desc: "every wall slides around" },
+  { id: "squeeze", name: "TIGHT SQUEEZE", desc: "narrow gaps, +250 finish bonus" },
+];
+const modIndexRaw = ds => Math.floor(mulberry32(seedFromDate(ds + "mod"))() * MODS.length);
+function todayMod() {
+  // Never the same twist two days running. Each day's pick dodges the
+  // PREVIOUS day's effective pick, so replay the last 30 days from a fixed
+  // offset -- cheap, and every device walks the same dates to the same answer.
+  const d = new Date(); d.setDate(d.getDate() - 30);
+  let prev = -1;
+  for (let k = 0; k <= 30; k++) {
+    const ds = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+    let i = modIndexRaw(ds);
+    if (i === prev)
+      i = (i + 1 + Math.floor(mulberry32(seedFromDate(ds + "mod2"))() * (MODS.length - 1))) % MODS.length;
+    prev = i;
+    d.setDate(d.getDate() + 1);
+  }
+  return MODS[prev];
+}
+
 /* ================= DAILY SEED ================= */
 const today = () => {
   const d = new Date();
@@ -252,6 +295,7 @@ const G = {
 
 function courseReset(playerCfg, boost) {
   G.rng = mulberry32(seedFromDate(today()));           // same course for everyone
+  G.mod = todayMod().id;                               // same twist for everyone
   G.t = 0; G.px = W/2; G.targetX = W/2;
   G.hearts = boost === "shield" ? 4 : 3;
   G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
@@ -261,15 +305,19 @@ function courseReset(playerCfg, boost) {
   G.nextBarY = -60; G.barCount = 0;
   // Pre-generate the whole 90s course deterministically: bars spaced by time.
   // World speed ramps 150 -> 330 px/s (before handicap), bars every ~1.15s.
+  // Mod effects apply AFTER each rng draw so the draw sequence stays stable.
   let y = -80;
   const totalDist = avgCourseSpeed() * RUN_SECS * 1.15;
   while (y > -totalDist) {
-    const gapW = 96 + G.rng() * 70 * (y > -totalDist * .3 ? 1.4 : 1);   // wider gaps early
+    let gapW = 96 + G.rng() * 70 * (y > -totalDist * .3 ? 1.4 : 1);   // wider gaps early
+    if (G.mod === "squeeze") gapW *= 0.8;
     const gapX = 24 + G.rng() * (W - 48 - gapW);
-    const drift = (G.barCount > 8 && G.rng() < 0.3) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
+    const driftFrom = G.mod === "drift" ? 2 : 8;
+    const driftChance = G.mod === "drift" ? 1.01 : 0.3;
+    const drift = (G.barCount > driftFrom && G.rng() < driftChance) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
     G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2 });
-    // coin line: 60% of bars get 3 coins through/near the gap
-    if (G.rng() < 0.6) {
+    // coin line through/near the gap (most bars on COIN RUSH days)
+    if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
       const cxm = gapX + gapW / 2;
       for (let i = 0; i < 3; i++)
         G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
@@ -281,7 +329,7 @@ function courseReset(playerCfg, boost) {
 function avgCourseSpeed(){ return (150 + 330) / 2; }
 function worldSpeed() {
   const ramp = 150 + (330 - 150) * Math.min(G.t / RUN_SECS, 1);
-  return ramp * G.speedScale * G.slow;
+  return ramp * G.speedScale * G.slow * (G.mod === "turbo" ? 1.15 : 1);
 }
 
 function startRun() {
@@ -295,8 +343,10 @@ function startRun() {
 function endRun(died) {
   G.running = false;
   const survived = Math.min(G.t, RUN_SECS);
-  const finishBonus = died ? 0 : 250 + (G.hearts * 50);
-  const raw = G.coins * 10 + Math.floor(survived) * 2 + finishBonus;
+  const coinVal = G.mod === "rush" ? 20 : 10;
+  const finishBonus = died ? 0 : 250 + (G.hearts * 50) + (G.mod === "squeeze" ? 250 : 0);
+  let raw = G.coins * coinVal + Math.floor(survived) * 2 + finishBonus;
+  if (G.mod === "turbo") raw *= 1.25;
   const score = Math.round(raw * G.mult);
   const runs = runsUsed() + 1;
   store.day("runs", String(runs));
@@ -306,10 +356,11 @@ function endRun(died) {
   document.getElementById("resScore").textContent = score.toLocaleString();
   document.getElementById("newBest").classList.toggle("hidden", !isBest);
   document.getElementById("resDetail").innerHTML =
-    `${G.coins} coins &times; 10 &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
+    `${G.coins} coins &times; ${coinVal} &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
     (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : " &nbsp;// down in the maze") +
+    (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "") +
     `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`;
-  document.getElementById("resDate").textContent = dateLabel();
+  document.getElementById("resDate").textContent = `${dateLabel()} // ${todayMod().name}`;
   document.getElementById("againBtn").disabled = runs >= MAX_RUNS;
   document.getElementById("againBtn").textContent = runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
   show("results");
@@ -323,8 +374,9 @@ function loop(ts) {
   if (G.t >= RUN_SECS) { G.finished = true; endRun(false); return; }
 
   // steer: lerp toward target; held arrow keys glide instead of stepping
-  if (keys.ArrowLeft || keys.a) G.targetX -= 300 * dt;
-  if (keys.ArrowRight || keys.d) G.targetX += 300 * dt;
+  const mdir = G.mod === "mirror" ? -1 : 1;
+  if (keys.ArrowLeft || keys.a) G.targetX -= 300 * dt * mdir;
+  if (keys.ArrowRight || keys.d) G.targetX += 300 * dt * mdir;
   G.targetX = Math.max(14, Math.min(W - 14, G.targetX));
   G.px += (G.targetX - G.px) * Math.min(1, dt * 12);
   G.px = Math.max(14, Math.min(W - 14, G.px));
@@ -425,6 +477,14 @@ function draw(py) {
     cx.beginPath(); cx.arc(G.px, py, 5, 0, 7); cx.fill();
     cx.shadowBlur = 0;
   }
+  // FOG day: the world only exists near your orb.
+  if (G.mod === "fog") {
+    const g = cx.createRadialGradient(G.px, py, 95, G.px, py, 240);
+    g.addColorStop(0, "rgba(7,6,15,0)");
+    g.addColorStop(1, "rgba(7,6,15,0.97)");
+    cx.fillStyle = g;
+    cx.fillRect(0, 0, W, H);
+  }
   cx.restore();
 
   // HUD
@@ -456,12 +516,16 @@ cv.addEventListener("touchstart", e => {
 }, {passive:false});
 cv.addEventListener("touchmove", e => {
   if (!G.running || touchAnchorX === null) return;
-  G.targetX = orbAnchorX + (pointerX(e) - touchAnchorX) * 1.2;
+  const flip = G.mod === "mirror" ? -1 : 1;
+  G.targetX = orbAnchorX + (pointerX(e) - touchAnchorX) * 1.2 * flip;
   e.preventDefault();
 }, {passive:false});
 cv.addEventListener("touchend", () => { touchAnchorX = null; });
 // Desktop cursor is visible, so absolute follow stays right for the mouse.
-cv.addEventListener("mousemove",  e => { if (G.running) G.targetX = pointerX(e); });
+cv.addEventListener("mousemove",  e => {
+  if (!G.running) return;
+  G.targetX = G.mod === "mirror" ? W - pointerX(e) : pointerX(e);
+});
 const keys = {};
 addEventListener("keydown", e => { keys[e.key] = true; });
 addEventListener("keyup",   e => { keys[e.key] = false; });
@@ -637,7 +701,7 @@ async function share() {
   const rows = ROSTER.map(r => ({ ...r, s: t[r.id]?.score || 0 })).sort((a,b) => b.s - a.s);
   const medal = ["🥇","🥈","🥉","  "];
   const lines = rows.filter(r => r.s).map((r, i) => `${medal[i]} ${r.name} ${r.s.toLocaleString()}`);
-  const txt = `🕹 DAILY GAUNTLET ${dateLabel()}\n${lines.join("\n")}\n${location.href.split("?")[0]}`;
+  const txt = `🕹 DAILY GAUNTLET ${dateLabel()} // ${todayMod().name}\n${lines.join("\n")}\n${location.href.split("?")[0]}`;
   if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
   try { await navigator.clipboard.writeText(txt); toast("copied -- paste it in the family text"); }
   catch { toast("could not copy"); }
@@ -655,6 +719,8 @@ function toast(msg) {
 }
 function renderHome() {
   document.getElementById("homeDate").textContent = `${dateLabel()} // SAME MAZE FOR EVERYONE`;
+  const m = todayMod();
+  document.getElementById("homeMod").textContent = `TODAY'S TWIST: ${m.name} -- ${m.desc}`;
   const rosterEl = document.getElementById("roster");
   rosterEl.innerHTML = ROSTER.map(r =>
     `<button data-id="${r.id}" class="${store.player === r.id ? "sel" : ""}">${r.name}</button>`).join("");
