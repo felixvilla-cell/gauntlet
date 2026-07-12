@@ -193,11 +193,19 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 const seedFromDate = s => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 
 /* ================= LOCAL STATE ================= */
+// Room + player resolve URL-first and live in MEMORY for the session;
+// localStorage is only a convenience for the next visit. (v1 stored room only
+// in localStorage -- one storage hiccup and every sync silently no-oped.)
+const qs = new URLSearchParams(location.search);
+let ROOM = (qs.get("room") || safeGet("g:room") || CFG.room || "").toLowerCase().trim();
+if (qs.get("room")) safeSet("g:room", ROOM);
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 const store = {
-  get room()   { return localStorage.getItem("g:room") || CFG.room || ""; },
-  set room(v)  { localStorage.setItem("g:room", v); },
-  get player() { return localStorage.getItem("g:player") || ""; },
-  set player(v){ localStorage.setItem("g:player", v); },
+  get room()   { return ROOM; },
+  set room(v)  { ROOM = v; safeSet("g:room", v); },
+  get player() { return safeGet("g:player") || ""; },
+  set player(v){ safeSet("g:player", v); },
   day(k, v) {
     const key = `g:${today()}:${store.player}:${k}`;
     if (v === undefined) return localStorage.getItem(key);
@@ -434,7 +442,10 @@ const fsBase = () => CFG.firebase
   : null;
 
 async function syncScore(best, runs) {
-  if (!fsBase() || !store.room) return;
+  if (!fsBase() || !store.room) {
+    toast("score not synced -- open the game from the family link");
+    return;
+  }
   const url = `${fsBase()}/rooms/${encodeURIComponent(store.room)}/days/${today()}` +
     `?updateMask.fieldPaths=scores.${store.player}&key=${CFG.firebase.apiKey}`;
   const body = { fields: { scores: { mapValue: { fields: {
@@ -577,8 +588,10 @@ document.getElementById("roomGo").onclick = () => {
 };
 
 /* ================= BOOT ================= */
-const qs = new URLSearchParams(location.search);
-if (qs.get("room")) store.room = qs.get("room").toLowerCase();
+// ?player=papa|adelina|fd|oliver|gray pre-picks the player, so each family
+// member can get a link with their name already locked in.
+const qp = (qs.get("player") || "").toLowerCase();
+if (ROSTER.some(r => r.id === qp)) store.player = qp;
 if (!store.room) { show("roomgate"); }
 else { show("home"); renderHome(); refreshBoards(); }
 </script>
