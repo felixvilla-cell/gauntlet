@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>DAILY GAUNTLET</title>
+<style>
+  :root {
+    --bg: #07060f;
+    --panel: #100e1f;
+    --cyan: #19e3ff;
+    --magenta: #ff2ea6;
+    --gold: #ffc93c;
+    --ink: #e8e6ff;
+    --dim: #8a86b8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; touch-action: none; }
+  body {
+    font-family: "Menlo", "Courier New", monospace;
+    color: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+  }
+  #stage { position: relative; }
+  canvas { display: block; background: var(--bg); }
+  /* CRT scanlines over everything */
+  #stage::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 40;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
+  }
+  .screen {
+    position: absolute; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; align-items: center;
+    padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+    overflow-y: auto; background: var(--bg);
+  }
+  .hidden { display: none !important; }
+  h1 {
+    font-size: 26px; letter-spacing: 4px; margin: 10px 0 2px; text-align: center;
+    color: var(--cyan); text-shadow: 0 0 12px var(--cyan), 0 0 40px rgba(25,227,255,.4);
+  }
+  h1 span { color: var(--magenta); text-shadow: 0 0 12px var(--magenta), 0 0 40px rgba(255,46,166,.4); }
+  .date { color: var(--dim); font-size: 12px; letter-spacing: 2px; margin-bottom: 14px; }
+  .panel {
+    width: 100%; max-width: 360px; background: var(--panel);
+    border: 1px solid rgba(25,227,255,.25); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 12px;
+    box-shadow: 0 0 18px rgba(25,227,255,.08) inset;
+  }
+  .panel h2 { font-size: 11px; letter-spacing: 3px; color: var(--dim); margin-bottom: 10px; }
+  .roster { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .roster button, .boosts button {
+    background: #171430; border: 1px solid rgba(138,134,184,.35); border-radius: 8px;
+    color: var(--ink); font: inherit; font-size: 14px; padding: 12px 6px; cursor: pointer;
+    letter-spacing: 1px;
+  }
+  .roster button.sel, .boosts button.sel {
+    border-color: var(--gold); color: var(--gold);
+    box-shadow: 0 0 10px rgba(255,201,60,.45); text-shadow: 0 0 8px rgba(255,201,60,.6);
+  }
+  .boosts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .boosts small { display: block; color: var(--dim); font-size: 9px; margin-top: 4px; letter-spacing: 0; }
+  .board { width: 100%; font-size: 14px; }
+  .board .row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  .board .name { width: 76px; letter-spacing: 1px; }
+  .board .bar-wrap { flex: 1; height: 12px; background: #171430; border-radius: 6px; overflow: hidden; }
+  .board .bar { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--cyan), var(--magenta)); box-shadow: 0 0 8px rgba(255,46,166,.6); }
+  .board .pts { width: 62px; text-align: right; color: var(--gold); }
+  .board .empty { color: var(--dim); }
+  .streakline { color: var(--dim); font-size: 11px; margin-top: 8px; letter-spacing: 1px; min-height: 14px; }
+  .bigbtn {
+    width: 100%; max-width: 360px; padding: 16px; margin-top: 2px;
+    font: inherit; font-size: 20px; letter-spacing: 6px; cursor: pointer;
+    color: #07060f; font-weight: bold; border: none; border-radius: 10px;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta));
+    box-shadow: 0 0 22px rgba(255,46,166,.55);
+  }
+  .bigbtn:disabled { opacity: .35; box-shadow: none; cursor: default; }
+  .subbtn {
+    width: 100%; max-width: 360px; padding: 12px; margin-top: 10px;
+    font: inherit; font-size: 13px; letter-spacing: 3px; cursor: pointer;
+    color: var(--cyan); background: transparent;
+    border: 1px solid rgba(25,227,255,.4); border-radius: 10px;
+  }
+  .runsleft { color: var(--dim); font-size: 12px; margin-top: 10px; letter-spacing: 2px; }
+  .result-score {
+    font-size: 44px; color: var(--gold); letter-spacing: 2px; margin: 6px 0;
+    text-shadow: 0 0 16px rgba(255,201,60,.8), 0 0 50px rgba(255,201,60,.35);
+  }
+  .result-detail { color: var(--dim); font-size: 12px; line-height: 1.9; text-align: center; letter-spacing: 1px; }
+  .toast {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 50;
+    background: #171430; border: 1px solid var(--gold); color: var(--gold);
+    padding: 10px 16px; border-radius: 8px; font-size: 12px; letter-spacing: 1px;
+    opacity: 0; transition: opacity .3s; pointer-events: none; max-width: 90%;
+  }
+  .toast.show { opacity: 1; }
+  #roomgate input {
+    width: 100%; background: #171430; border: 1px solid rgba(138,134,184,.35); border-radius: 8px;
+    color: var(--ink); font: inherit; font-size: 16px; padding: 12px; text-align: center; letter-spacing: 3px;
+  }
+  .newbest { color: var(--magenta); font-size: 13px; letter-spacing: 3px; margin-bottom: 2px;
+    text-shadow: 0 0 10px rgba(255,46,166,.7); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <!-- ROOM GATE (first launch only) -->
+  <div id="roomgate" class="screen hidden">
+    <h1>DAILY<span>GAUNTLET</span></h1>
+    <p class="date">FAMILY DUEL // ENTER ROOM CODE</p>
+    <div class="panel">
+      <h2>ROOM CODE</h2>
+      <input id="roomInput" placeholder="from Papa's text" autocapitalize="none" autocomplete="off">
+    </div>
+    <button class="bigbtn" id="roomGo">ENTER</button>
+  </div>
+
+  <!-- HOME -->
+  <div id="home" class="screen">
+    <h1>DAILY<span>GAUNTLET</span></h1>
+    <p class="date" id="homeDate"></p>
+    <div class="panel" id="playerPanel">
+      <h2>WHO ARE YOU?</h2>
+      <div class="roster" id="roster"></div>
+    </div>
+    <div class="panel">
+      <h2>PICK ONE BOOST</h2>
+      <div class="boosts" id="boosts"></div>
+    </div>
+    <div class="panel">
+      <h2>TODAY'S DUEL</h2>
+      <div class="board" id="board"><div class="row empty">loading scores...</div></div>
+      <div class="streakline" id="streakline"></div>
+    </div>
+    <button class="bigbtn" id="runBtn">RUN</button>
+    <div class="runsleft" id="runsLeft"></div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results" class="screen hidden">
+    <h1>RUN<span>OVER</span></h1>
+    <p class="date" id="resDate"></p>
+    <div class="newbest hidden" id="newBest">NEW DAILY BEST</div>
+    <div class="result-score" id="resScore">0</div>
+    <div class="result-detail" id="resDetail"></div>
+    <div class="panel" style="margin-top:12px">
+      <h2>TODAY'S DUEL</h2>
+      <div class="board" id="board2"></div>
+    </div>
+    <button class="bigbtn" id="againBtn">RUN AGAIN</button>
+    <button class="subbtn" id="shareBtn">SHARE RESULT</button>
+    <button class="subbtn" id="homeBtn">BACK</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="config.js"></script>
+<script>
+"use strict";
+/* ================= CONFIG / ROSTER ================= */
+// GAUNTLET_CONFIG comes from config.js: { firebase: {projectId, apiKey}, room: "" }
+const CFG = window.GAUNTLET_CONFIG || { firebase: null, room: "" };
+// Auto handicap, invisible: younger players face a slower world and score a
+// bonus multiplier. One leaderboard, everyone sees the same numbers.
+const ROSTER = [
+  { id: "papa",  name: "PAPA",   speed: 1.00, mult: 1.00 },
+  { id: "fd",    name: "FELIX D",speed: 1.00, mult: 1.00 },
+  { id: "oliver",name: "OLIVER", speed: 0.88, mult: 1.35 },
+  { id: "gray",  name: "GRAY",   speed: 0.78, mult: 1.65 },
+];
+const BOOSTS = [
+  { id: "shield", name: "SHIELD", desc: "+1 hit" },
+  { id: "magnet", name: "MAGNET", desc: "pulls coins" },
+  { id: "slowmo", name: "SLO-MO", desc: "10% slower" },
+];
+const MAX_RUNS = 3, RUN_SECS = 90;
+
+/* ================= DAILY SEED ================= */
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+};
+const dateLabel = () => new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}).toUpperCase();
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const seedFromDate = s => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+
+/* ================= LOCAL STATE ================= */
+const store = {
+  get room()   { return localStorage.getItem("g:room") || CFG.room || ""; },
+  set room(v)  { localStorage.setItem("g:room", v); },
+  get player() { return localStorage.getItem("g:player") || ""; },
+  set player(v){ localStorage.setItem("g:player", v); },
+  day(k, v) {
+    const key = `g:${today()}:${store.player}:${k}`;
+    if (v === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, v);
+  },
+};
+const runsUsed = () => parseInt(store.day("runs") || "0", 10);
+const bestToday = () => parseInt(store.day("best") || "0", 10);
+
+/* ================= CANVAS / SIZING ================= */
+const W = 400, H = 700;
+const cv = document.getElementById("game"), cx = cv.getContext("2d");
+function fit() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = Math.min(innerWidth / W, innerHeight / H);
+  cv.style.width = W * scale + "px"; cv.style.height = H * scale + "px";
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  document.getElementById("stage").style.width = cv.style.width;
+  document.getElementById("stage").style.height = cv.style.height;
+}
+addEventListener("resize", fit); fit();
+
+/* ================= GAME ================= */
+const G = {
+  running: false, t: 0, lastTs: 0,
+  px: W/2, targetX: W/2, hearts: 3, inv: 0, shake: 0,
+  coins: 0, obstacles: [], coinDots: [], sparks: [],
+  speedScale: 1, mult: 1, boost: "", slow: 1, magnet: false,
+  rng: null, nextBarY: 0, barCount: 0, finished: false,
+};
+
+function courseReset(playerCfg, boost) {
+  G.rng = mulberry32(seedFromDate(today()));           // same course for everyone
+  G.t = 0; G.px = W/2; G.targetX = W/2;
+  G.hearts = boost === "shield" ? 4 : 3;
+  G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
+  G.obstacles = []; G.coinDots = []; G.sparks = [];
+  G.speedScale = playerCfg.speed; G.mult = playerCfg.mult;
+  G.boost = boost; G.slow = boost === "slowmo" ? 0.9 : 1; G.magnet = boost === "magnet";
+  G.nextBarY = -60; G.barCount = 0;
+  // Pre-generate the whole 90s course deterministically: bars spaced by time.
+  // World speed ramps 150 -> 330 px/s (before handicap), bars every ~1.15s.
+  let y = -80;
+  const totalDist = avgCourseSpeed() * RUN_SECS * 1.15;
+  while (y > -totalDist) {
+    const gapW = 96 + G.rng() * 70 * (y > -totalDist * .3 ? 1.4 : 1);   // wider gaps early
+    const gapX = 24 + G.rng() * (W - 48 - gapW);
+    const drift = (G.barCount > 8 && G.rng() < 0.3) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
+    G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2 });
+    // coin line: 60% of bars get 3 coins through/near the gap
+    if (G.rng() < 0.6) {
+      const cxm = gapX + gapW / 2;
+      for (let i = 0; i < 3; i++)
+        G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
+    }
+    G.barCount++;
+    y -= 120 + G.rng() * 90;
+  }
+}
+function avgCourseSpeed(){ return (150 + 330) / 2; }
+function worldSpeed() {
+  const ramp = 150 + (330 - 150) * Math.min(G.t / RUN_SECS, 1);
+  return ramp * G.speedScale * G.slow;
+}
+
+function startRun() {
+  const p = ROSTER.find(r => r.id === store.player);
+  courseReset(p, G.pickedBoost || "shield");
+  show("game");
+  G.running = true; G.lastTs = performance.now();
+  requestAnimationFrame(loop);
+}
+
+function endRun(died) {
+  G.running = false;
+  const survived = Math.min(G.t, RUN_SECS);
+  const finishBonus = died ? 0 : 250 + (G.hearts * 50);
+  const raw = G.coins * 10 + Math.floor(survived) * 2 + finishBonus;
+  const score = Math.round(raw * G.mult);
+  const runs = runsUsed() + 1;
+  store.day("runs", String(runs));
+  const prev = bestToday();
+  const isBest = score > prev;
+  if (isBest) store.day("best", String(score));
+  document.getElementById("resScore").textContent = score.toLocaleString();
+  document.getElementById("newBest").classList.toggle("hidden", !isBest);
+  document.getElementById("resDetail").innerHTML =
+    `${G.coins} coins &times; 10 &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
+    (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : " &nbsp;// down in the maze") +
+    `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`;
+  document.getElementById("resDate").textContent = dateLabel();
+  document.getElementById("againBtn").disabled = runs >= MAX_RUNS;
+  document.getElementById("againBtn").textContent = runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
+  show("results");
+  syncScore(Math.max(score, prev), runs).then(() => refreshBoards());
+}
+
+function loop(ts) {
+  if (!G.running) return;
+  const dt = Math.min((ts - G.lastTs) / 1000, 0.05);
+  G.lastTs = ts; G.t += dt;
+  if (G.t >= RUN_SECS) { G.finished = true; endRun(false); return; }
+
+  // steer: lerp toward target
+  G.px += (G.targetX - G.px) * Math.min(1, dt * 10);
+  G.px = Math.max(14, Math.min(W - 14, G.px));
+
+  const vs = worldSpeed() * dt;
+  const py = H * 0.78;
+  for (const o of G.obstacles) o.y += vs;
+  for (const c of G.coinDots) c.y += vs;
+
+  // moving gaps drift
+  for (const o of G.obstacles) if (o.drift) {
+    o.gapX += Math.sin(G.t * 1.6 + o.phase) * o.drift * dt;
+    o.gapX = Math.max(10, Math.min(W - 10 - o.gapW, o.gapX));
+  }
+
+  // collisions
+  if (G.inv > 0) G.inv -= dt;
+  for (const o of G.obstacles) {
+    if (Math.abs(o.y - py) < 12 && G.inv <= 0) {
+      const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
+      if (!inGap) {
+        G.hearts--; G.inv = 1.2; G.shake = 14;
+        burst(G.px, py, "#ff2ea6");
+        if (navigator.vibrate) navigator.vibrate(80);
+        if (G.hearts <= 0) { endRun(true); return; }
+      }
+    }
+  }
+  // coins
+  for (const c of G.coinDots) {
+    if (c.got) continue;
+    if (G.magnet) {
+      const dx = G.px - c.x, dy = py - c.y, d = Math.hypot(dx, dy);
+      if (d < 95) { c.x += dx / d * 240 * dt; c.y += dy / d * 240 * dt; }
+    }
+    if (Math.hypot(c.x - G.px, c.y - py) < 18) {
+      c.got = true; G.coins++; burst(c.x, c.y, "#ffc93c");
+    }
+  }
+  draw(py);
+  requestAnimationFrame(loop);
+}
+
+function burst(x, y, color) {
+  for (let i = 0; i < 10; i++)
+    G.sparks.push({ x, y, vx: (Math.random()-.5)*260, vy: (Math.random()-.5)*260, life: .5, color });
+}
+
+function draw(py) {
+  cx.clearRect(0, 0, W, H);
+  const sx = (Math.random()-.5) * G.shake, sy = (Math.random()-.5) * G.shake;
+  if (G.shake > 0) G.shake = Math.max(0, G.shake - 60 * 0.016);
+  cx.save(); cx.translate(sx, sy);
+
+  // grid backdrop
+  cx.strokeStyle = "rgba(25,227,255,.07)"; cx.lineWidth = 1;
+  const off = (G.t * 60) % 40;
+  for (let y = -40 + off; y < H; y += 40) { cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
+  for (let x = 0; x <= W; x += 40) { cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, H); cx.stroke(); }
+
+  // obstacles: neon bars with gap
+  for (const o of G.obstacles) {
+    if (o.y < -20 || o.y > H + 20) continue;
+    cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+    cx.fillStyle = "#0fbcd8";
+    cx.fillRect(0, o.y - 7, o.gapX, 14);
+    cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+    cx.shadowBlur = 0;
+  }
+  // coins
+  for (const c of G.coinDots) {
+    if (c.got || c.y < -20 || c.y > H + 20) continue;
+    cx.shadowColor = "#ffc93c"; cx.shadowBlur = 12;
+    cx.fillStyle = "#ffc93c";
+    cx.beginPath(); cx.arc(c.x, c.y, 7, 0, 7); cx.fill();
+    cx.shadowBlur = 0;
+  }
+  // sparks
+  for (let i = G.sparks.length - 1; i >= 0; i--) {
+    const s = G.sparks[i];
+    s.life -= 0.016; if (s.life <= 0) { G.sparks.splice(i, 1); continue; }
+    s.x += s.vx * 0.016; s.y += s.vy * 0.016;
+    cx.globalAlpha = s.life * 2; cx.fillStyle = s.color;
+    cx.fillRect(s.x - 2, s.y - 2, 4, 4); cx.globalAlpha = 1;
+  }
+  // player orb
+  const blink = G.inv > 0 && Math.floor(G.t * 12) % 2 === 0;
+  if (!blink) {
+    cx.shadowColor = "#ff2ea6"; cx.shadowBlur = 22;
+    cx.fillStyle = "#ff2ea6";
+    cx.beginPath(); cx.arc(G.px, py, 12, 0, 7); cx.fill();
+    cx.fillStyle = "#fff";
+    cx.beginPath(); cx.arc(G.px, py, 5, 0, 7); cx.fill();
+    cx.shadowBlur = 0;
+  }
+  cx.restore();
+
+  // HUD
+  cx.fillStyle = "#e8e6ff"; cx.font = "bold 15px Menlo, monospace"; cx.textAlign = "left";
+  cx.fillText("♥".repeat(Math.max(0, G.hearts)), 12, 26);
+  cx.textAlign = "center";
+  cx.fillStyle = "#ffc93c"; cx.fillText(String(G.coins), W/2, 26);
+  cx.textAlign = "right";
+  const left = Math.max(0, RUN_SECS - G.t);
+  cx.fillStyle = left < 10 ? "#ff2ea6" : "#8a86b8";
+  cx.fillText(Math.ceil(left) + "s", W - 12, 26);
+}
+
+/* ================= INPUT ================= */
+function pointerX(e) {
+  const r = cv.getBoundingClientRect();
+  const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+  return (clientX - r.left) / r.width * W;
+}
+cv.addEventListener("touchstart", e => { if (G.running) { G.targetX = pointerX(e); e.preventDefault(); } }, {passive:false});
+cv.addEventListener("touchmove",  e => { if (G.running) { G.targetX = pointerX(e); e.preventDefault(); } }, {passive:false});
+cv.addEventListener("mousemove",  e => { if (G.running) G.targetX = pointerX(e); });
+const keys = {};
+addEventListener("keydown", e => {
+  keys[e.key] = true;
+  if (G.running) {
+    if (e.key === "ArrowLeft" || e.key === "a") G.targetX = Math.max(14, G.targetX - 46);
+    if (e.key === "ArrowRight" || e.key === "d") G.targetX = Math.min(W - 14, G.targetX + 46);
+  }
+});
+
+/* ================= FIRESTORE SYNC (REST, no SDK) ================= */
+const fsBase = () => CFG.firebase
+  ? `https://firestore.googleapis.com/v1/projects/${CFG.firebase.projectId}/databases/(default)/documents`
+  : null;
+
+async function syncScore(best, runs) {
+  if (!fsBase() || !store.room) return;
+  const url = `${fsBase()}/rooms/${encodeURIComponent(store.room)}/days/${today()}` +
+    `?updateMask.fieldPaths=scores.${store.player}&key=${CFG.firebase.apiKey}`;
+  const body = { fields: { scores: { mapValue: { fields: {
+    [store.player]: { mapValue: { fields: {
+      score: { integerValue: String(best) },
+      runs:  { integerValue: String(runs) },
+      boost: { stringValue: G.boost || "" },
+      ts:    { integerValue: String(Date.now()) },
+    }}}
+  }}}}};
+  try {
+    const r = await fetch(url, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await r.text());
+  } catch (e) { toast("offline -- score saved on this phone, will sync next run"); }
+}
+
+async function fetchDays(n) {
+  if (!fsBase() || !store.room) return {};
+  const names = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const ds = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+    names.push(`projects/${CFG.firebase.projectId}/databases/(default)/documents/rooms/${store.room}/days/${ds}`);
+  }
+  try {
+    const r = await fetch(`https://firestore.googleapis.com/v1/projects/${CFG.firebase.projectId}/databases/(default)/documents:batchGet?key=${CFG.firebase.apiKey}`,
+      { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ documents: names }) });
+    if (!r.ok) return {};
+    const out = {};
+    for (const item of await r.json()) {
+      if (!item.found) continue;
+      const day = item.found.name.split("/").pop();
+      const scores = item.found.fields?.scores?.mapValue?.fields || {};
+      out[day] = {};
+      for (const [pid, v] of Object.entries(scores)) {
+        const f = v.mapValue?.fields || {};
+        out[day][pid] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10) };
+      }
+    }
+    return out;
+  } catch { return {}; }
+}
+
+/* ================= LEADERBOARD ================= */
+async function refreshBoards() {
+  const days = await fetchDays(14);
+  const t = days[today()] || {};
+  // fold in local best in case sync failed
+  if (store.player && bestToday() > (t[store.player]?.score || 0))
+    t[store.player] = { score: bestToday(), runs: runsUsed() };
+  renderBoard("board", t); renderBoard("board2", t);
+  renderStreak(days);
+}
+function renderBoard(elId, scores) {
+  const el = document.getElementById(elId);
+  const rows = ROSTER.map(r => ({ ...r, s: scores[r.id]?.score || 0, runs: scores[r.id]?.runs || 0 }))
+    .sort((a, b) => b.s - a.s);
+  const max = Math.max(...rows.map(r => r.s), 1);
+  el.innerHTML = rows.map(r => r.s
+    ? `<div class="row"><span class="name">${r.name}</span><span class="bar-wrap"><span class="bar" style="width:${Math.round(r.s/max*100)}%"></span></span><span class="pts">${r.s.toLocaleString()}</span></div>`
+    : `<div class="row empty"><span class="name">${r.name}</span><span style="flex:1">has not run yet</span></div>`
+  ).join("");
+}
+function renderStreak(days) {
+  // daily winner = top score each day; streak = consecutive days won by same player up to today
+  const keys = Object.keys(days).sort().reverse();
+  let winner = null, streak = 0;
+  for (const k of keys) {
+    const entries = Object.entries(days[k]).sort((a,b) => b[1].score - a[1].score);
+    if (!entries.length) break;
+    const dayWinner = entries[0][0];
+    if (winner === null) { winner = dayWinner; streak = 1; }
+    else if (dayWinner === winner) streak++;
+    else break;
+  }
+  const el = document.getElementById("streakline");
+  if (winner && streak > 1) {
+    const nm = ROSTER.find(r => r.id === winner)?.name || winner;
+    el.textContent = `${nm} is on a ${streak}-day win streak`;
+  } else el.textContent = "";
+}
+
+/* ================= SHARE ================= */
+async function share() {
+  const days = await fetchDays(1);
+  const t = days[today()] || {};
+  if (store.player && bestToday() > (t[store.player]?.score || 0))
+    t[store.player] = { score: bestToday(), runs: runsUsed() };
+  const rows = ROSTER.map(r => ({ ...r, s: t[r.id]?.score || 0 })).sort((a,b) => b.s - a.s);
+  const medal = ["🥇","🥈","🥉","  "];
+  const lines = rows.filter(r => r.s).map((r, i) => `${medal[i]} ${r.name} ${r.s.toLocaleString()}`);
+  const txt = `🕹 DAILY GAUNTLET ${dateLabel()}\n${lines.join("\n")}\n${location.href.split("?")[0]}`;
+  if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
+  try { await navigator.clipboard.writeText(txt); toast("copied -- paste it in the family text"); }
+  catch { toast("could not copy"); }
+}
+
+/* ================= UI WIRING ================= */
+function show(id) {
+  for (const s of ["home", "results", "roomgate"]) document.getElementById(s).classList.add("hidden");
+  if (id !== "game") document.getElementById(id).classList.remove("hidden");
+}
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2600);
+}
+function renderHome() {
+  document.getElementById("homeDate").textContent = `${dateLabel()} // SAME MAZE FOR EVERYONE`;
+  const rosterEl = document.getElementById("roster");
+  rosterEl.innerHTML = ROSTER.map(r =>
+    `<button data-id="${r.id}" class="${store.player === r.id ? "sel" : ""}">${r.name}</button>`).join("");
+  rosterEl.querySelectorAll("button").forEach(b => b.onclick = () => {
+    store.player = b.dataset.id; renderHome(); refreshBoards();
+  });
+  const boostsEl = document.getElementById("boosts");
+  boostsEl.innerHTML = BOOSTS.map(b =>
+    `<button data-id="${b.id}" class="${G.pickedBoost === b.id ? "sel" : ""}">${b.name}<small>${b.desc}</small></button>`).join("");
+  boostsEl.querySelectorAll("button").forEach(b => b.onclick = () => {
+    G.pickedBoost = b.dataset.id; renderHome();
+  });
+  const used = store.player ? runsUsed() : 0;
+  const canRun = store.player && G.pickedBoost && used < MAX_RUNS;
+  const btn = document.getElementById("runBtn");
+  btn.disabled = !canRun;
+  btn.textContent = !store.player ? "PICK A PLAYER" : !G.pickedBoost ? "PICK A BOOST"
+    : used >= MAX_RUNS ? "DONE FOR TODAY" : "RUN";
+  document.getElementById("runsLeft").textContent = store.player
+    ? `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "")
+    : "";
+}
+document.getElementById("runBtn").onclick = startRun;
+document.getElementById("againBtn").onclick = () => { if (runsUsed() < MAX_RUNS) startRun(); };
+document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
+document.getElementById("shareBtn").onclick = share;
+document.getElementById("roomGo").onclick = () => {
+  const v = document.getElementById("roomInput").value.trim().toLowerCase();
+  if (v.length < 6) { toast("that code looks too short"); return; }
+  store.room = v; show("home"); renderHome(); refreshBoards();
+};
+
+/* ================= BOOT ================= */
+const qs = new URLSearchParams(location.search);
+if (qs.get("room")) store.room = qs.get("room").toLowerCase();
+if (!store.room) { show("roomgate"); }
+else { show("home"); renderHome(); refreshBoards(); }
+</script>
+</body>
+</html>
