@@ -98,7 +98,7 @@
     opacity: 0; transition: opacity .3s; pointer-events: none; max-width: 90%;
   }
   .toast.show { opacity: 1; }
-  #roomgate input {
+  .screen input {
     width: 100%; background: #171430; border: 1px solid rgba(138,134,184,.35); border-radius: 8px;
     color: var(--ink); font: inherit; font-size: 16px; padding: 12px; text-align: center; letter-spacing: 3px;
   }
@@ -119,6 +119,18 @@
       <input id="roomInput" placeholder="from Papa's text" autocapitalize="none" autocomplete="off">
     </div>
     <button class="bigbtn" id="roomGo">ENTER</button>
+  </div>
+
+  <!-- PIN GATE -->
+  <div id="pingate" class="screen hidden">
+    <h1>SECRET<span>PIN</span></h1>
+    <p class="date" id="pinLabel"></p>
+    <div class="panel">
+      <h2 id="pinPrompt">SET YOUR SECRET 4-DIGIT PIN</h2>
+      <input id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000" autocomplete="off">
+    </div>
+    <button class="bigbtn" id="pinGo">LOCK IT IN</button>
+    <button class="subbtn" id="pinCancel">BACK</button>
   </div>
 
   <!-- HOME -->
@@ -507,6 +519,76 @@ async function fetchDays(n) {
   } catch { return {}; }
 }
 
+/* ================= PLAYER PIN (anti-impersonation) ================= */
+// First run as a player sets a 4-digit PIN; running as them again (any
+// device) requires it. Cloud stores only a SHA-256 hash; a correct entry is
+// remembered per device. PINs can't be changed remotely (rules deny update)
+// -- forgot means Papi deletes rooms/{room}/players/{pid} in the console.
+let pinVerifiedFor = null, pinResolve = null;
+
+async function sha256(s) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+async function fetchPinHash(pid) {
+  if (!fsBase() || !store.room) return null;
+  try {
+    const r = await fetch(`${fsBase()}/rooms/${encodeURIComponent(store.room)}/players/${pid}?key=${CFG.firebase.apiKey}`);
+    if (r.status === 404) return "";        // no PIN set yet
+    if (!r.ok) return null;                 // can't tell -- treat as offline
+    const d = await r.json();
+    return d.fields?.pinHash?.stringValue || "";
+  } catch { return null; }
+}
+async function savePinHash(pid, hash) {
+  try {
+    const r = await fetch(`${fsBase()}/rooms/${encodeURIComponent(store.room)}/players/${pid}?key=${CFG.firebase.apiKey}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: { pinHash: { stringValue: hash } } }) });
+    return r.ok;
+  } catch { return false; }
+}
+function promptPin(isNew) {
+  return new Promise(res => {
+    const from = ["home", "results"].find(id => !document.getElementById(id).classList.contains("hidden")) || "home";
+    const name = ROSTER.find(r => r.id === store.player)?.name || "";
+    document.getElementById("pinPrompt").textContent = isNew ? "SET YOUR SECRET 4-DIGIT PIN" : "ENTER YOUR 4-DIGIT PIN";
+    document.getElementById("pinLabel").textContent = `${name} // ONLY YOU SHOULD KNOW IT`;
+    document.getElementById("pinGo").textContent = isNew ? "LOCK IT IN" : "UNLOCK";
+    document.getElementById("pinInput").value = "";
+    show("pingate");
+    setTimeout(() => document.getElementById("pinInput").focus(), 50);
+    pinResolve = v => { show(from); if (from === "home") renderHome(); res(v); };
+  });
+}
+document.getElementById("pinGo").onclick = () => {
+  const v = document.getElementById("pinInput").value.trim();
+  if (!/^\d{4}$/.test(v)) { toast("4 digits, numbers only"); return; }
+  const r = pinResolve; pinResolve = null; r && r(v);
+};
+document.getElementById("pinCancel").onclick = () => { const r = pinResolve; pinResolve = null; r && r(null); };
+
+async function ensurePin(pid) {
+  if (!pid) return false;
+  if (pinVerifiedFor === pid) return true;
+  const cloud = await fetchPinHash(pid);
+  if (cloud === null) { toast("can't check your PIN -- are you online?"); return false; }
+  const cached = safeGet("g:pin:" + pid) || "";
+  if (cloud && cached === cloud) { pinVerifiedFor = pid; return true; }
+  const entered = await promptPin(cloud === "");
+  if (entered === null) return false;
+  const hash = await sha256(store.room + "|" + pid + "|" + entered);
+  if (cloud === "") {
+    if (!(await savePinHash(pid, hash))) { toast("couldn't save the PIN -- try again"); return false; }
+    safeSet("g:pin:" + pid, hash); pinVerifiedFor = pid;
+    toast("PIN locked in -- don't tell your brothers");
+    return true;
+  }
+  if (hash === cloud) { safeSet("g:pin:" + pid, hash); pinVerifiedFor = pid; return true; }
+  toast("wrong PIN");
+  return false;
+}
+
 /* ================= LEADERBOARD ================= */
 async function refreshBoards() {
   const days = await fetchDays(14);
@@ -563,7 +645,7 @@ async function share() {
 
 /* ================= UI WIRING ================= */
 function show(id) {
-  for (const s of ["home", "results", "roomgate"]) document.getElementById(s).classList.add("hidden");
+  for (const s of ["home", "results", "roomgate", "pingate"]) document.getElementById(s).classList.add("hidden");
   if (id !== "game") document.getElementById(id).classList.remove("hidden");
 }
 function toast(msg) {
@@ -595,8 +677,12 @@ function renderHome() {
     ? `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "")
     : "";
 }
-document.getElementById("runBtn").onclick = startRun;
-document.getElementById("againBtn").onclick = () => { if (runsUsed() < MAX_RUNS) startRun(); };
+document.getElementById("runBtn").onclick = async () => {
+  if (await ensurePin(store.player)) startRun();
+};
+document.getElementById("againBtn").onclick = async () => {
+  if (runsUsed() < MAX_RUNS && await ensurePin(store.player)) startRun();
+};
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
 document.getElementById("shareBtn").onclick = share;
 document.getElementById("roomGo").onclick = () => {
