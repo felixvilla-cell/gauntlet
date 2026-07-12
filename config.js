@@ -1,7 +1,8 @@
-// Filled in by the deploy step once the Firebase project exists.
-// firebase: { projectId, apiKey }  -- web API key, safe to publish (security = Firestore rules + room code)
-// room: optional default room code baked into the family link
+// Firebase project for score sync. The web API key is public by design --
+// access control lives in firestore.rules (room-code path + shape checks).
+// The family room code is NOT baked in: it rides the shared link (?room=...)
+// and sticks in localStorage on first open.
 window.GAUNTLET_CONFIG = {
-  firebase: null,
+  firebase: { projectId: "daily-gauntlet", apiKey: "AIzaSyDhE-pKgEVvaD13bWz27Dot8CXZZs7aTsM" },
   room: "",
 };
