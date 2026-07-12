@@ -43,31 +43,35 @@
   .screen {
     position: absolute; inset: 0; z-index: 20;
     display: flex; flex-direction: column; align-items: center;
-    padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+    padding: max(10px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
     overflow-y: auto; background: var(--bg);
   }
   .hidden { display: none !important; }
   h1 {
-    font-size: 26px; letter-spacing: 4px; margin: 10px 0 2px; text-align: center;
+    font-size: 22px; letter-spacing: 4px; margin: 4px 0 2px; text-align: center;
     color: var(--cyan); text-shadow: 0 0 12px var(--cyan), 0 0 40px rgba(25,227,255,.4);
   }
   h1 span { color: var(--magenta); text-shadow: 0 0 12px var(--magenta), 0 0 40px rgba(255,46,166,.4); }
-  .date { color: var(--dim); font-size: 12px; letter-spacing: 2px; margin-bottom: 14px; }
+  .date { color: var(--dim); font-size: 11px; letter-spacing: 2px; margin-bottom: 8px; }
+  .gameline {
+    color: var(--cyan); font-size: 11px; letter-spacing: 2px; margin: -4px 0 4px;
+    text-shadow: 0 0 10px rgba(25,227,255,.45);
+  }
   .twist {
-    color: var(--gold); font-size: 12px; letter-spacing: 2px; margin: -8px 0 14px;
+    color: var(--gold); font-size: 11px; letter-spacing: 2px; margin: 0 0 8px;
     text-shadow: 0 0 10px rgba(255,201,60,.5);
   }
   .panel {
     width: 100%; max-width: 360px; background: var(--panel);
     border: 1px solid rgba(25,227,255,.25); border-radius: 10px;
-    padding: 12px 14px; margin-bottom: 12px;
+    padding: 10px 14px; margin-bottom: 8px;
     box-shadow: 0 0 18px rgba(25,227,255,.08) inset;
   }
   .panel h2 { font-size: 11px; letter-spacing: 3px; color: var(--dim); margin-bottom: 10px; }
   .roster { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .roster button, .boosts button {
     background: #171430; border: 1px solid rgba(138,134,184,.35); border-radius: 8px;
-    color: var(--ink); font: inherit; font-size: 14px; padding: 12px 6px; cursor: pointer;
+    color: var(--ink); font: inherit; font-size: 14px; padding: 9px 6px; cursor: pointer;
     letter-spacing: 1px;
   }
   .roster button.sel, .boosts button.sel {
@@ -77,7 +81,7 @@
   .boosts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   .boosts small { display: block; color: var(--dim); font-size: 9px; margin-top: 4px; letter-spacing: 0; }
   .board { width: 100%; font-size: 14px; }
-  .board .row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  .board .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
   .board .name { width: 76px; letter-spacing: 1px; }
   .board .bar-wrap { flex: 1; height: 12px; background: #171430; border-radius: 6px; overflow: hidden; }
   .board .bar { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--cyan), var(--magenta)); box-shadow: 0 0 8px rgba(255,46,166,.6); }
@@ -85,7 +89,7 @@
   .board .empty { color: var(--dim); }
   .streakline { color: var(--dim); font-size: 11px; margin-top: 8px; letter-spacing: 1px; min-height: 14px; }
   .bigbtn {
-    width: 100%; max-width: 360px; padding: 16px; margin-top: 2px;
+    width: 100%; max-width: 360px; padding: 13px; margin-top: 2px;
     font: inherit; font-size: 20px; letter-spacing: 6px; cursor: pointer;
     color: #07060f; font-weight: bold; border: none; border-radius: 10px;
     background: linear-gradient(90deg, var(--cyan), var(--magenta));
@@ -150,6 +154,7 @@
   <div id="home" class="screen">
     <h1>DAILY<span>GAUNTLET</span></h1>
     <p class="date" id="homeDate"></p>
+    <p class="gameline" id="homeGame"></p>
     <p class="twist" id="homeMod"></p>
     <div class="panel" id="playerPanel">
       <h2>WHO ARE YOU?</h2>
@@ -238,6 +243,23 @@ function todayMod() {
   return MODS[prev];
 }
 
+/* ================= WEEKLY GAME ROTATION ================= */
+// A different GAME each week (Felix: "new game every week"), from a fixed
+// Monday anchor so every device agrees. Daily seeds, boosts, twists, PINs and
+// the duel board all carry across games. Launch week (pre-anchor) = gauntlet.
+const WEEK_ANCHOR = Date.UTC(2026, 6, 13);   // Mon Jul 13 2026 -> week 1
+function weekIndex() {
+  const now = new Date();
+  const days = Math.floor((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - WEEK_ANCHOR) / 86400000);
+  return Math.floor(days / 7) + 1;
+}
+const GAME_ORDER = ["gauntlet", "tunnel", "meteor"];
+const weekGame = () => {
+  const forced = qs.get("game");            // ?game=tunnel -- testing/practice
+  if (forced && GAMES[forced]) return GAMES[forced];
+  return GAMES[GAME_ORDER[((weekIndex() % GAME_ORDER.length) + GAME_ORDER.length) % GAME_ORDER.length]];
+};
+
 /* ================= DAILY SEED ================= */
 const today = () => {
   const d = new Date();
@@ -293,38 +315,192 @@ const G = {
   rng: null, nextBarY: 0, barCount: 0, finished: false,
 };
 
+/* ================= THE GAMES ================= */
+// Each game owns hazard generation (seeded), per-frame movement + collision,
+// and hazard rendering. Steering, coins, boosts, hearts, scoring, fog, HUD,
+// and the duel board are shared. modName/modDesc reskin the daily twist ids
+// that mean something different per game.
+const GAMES = {
+  gauntlet: {
+    name: "THE GAUNTLET",
+    howto: "dodge the walls, thread the gaps",
+    modName: {}, modDesc: {},   // global twist labels already fit
+    reset() {
+      // Pre-generate the whole 90s course deterministically: bars spaced by
+      // time. World speed ramps 150 -> 330 px/s (before handicap). Mod effects
+      // apply AFTER each rng draw so the draw sequence stays stable.
+      let y = -80;
+      const totalDist = avgCourseSpeed() * RUN_SECS * 1.15;
+      while (y > -totalDist) {
+        let gapW = 96 + G.rng() * 70 * (y > -totalDist * .3 ? 1.4 : 1);   // wider gaps early
+        if (G.mod === "squeeze") gapW *= 0.8;
+        const gapX = 24 + G.rng() * (W - 48 - gapW);
+        const driftFrom = G.mod === "drift" ? 2 : 8;
+        const driftChance = G.mod === "drift" ? 1.01 : 0.3;
+        const drift = (G.barCount > driftFrom && G.rng() < driftChance) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
+        G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2 });
+        if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
+          const cxm = gapX + gapW / 2;
+          for (let i = 0; i < 3; i++)
+            G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
+        }
+        G.barCount++;
+        y -= 120 + G.rng() * 90;
+      }
+    },
+    update(dt, py, vs) {
+      for (const o of G.obstacles) o.y += vs;
+      for (const o of G.obstacles) if (o.drift) {
+        o.gapX += Math.sin(G.t * 1.6 + o.phase) * o.drift * dt;
+        o.gapX = Math.max(10, Math.min(W - 10 - o.gapW, o.gapX));
+      }
+      if (G.inv <= 0) for (const o of G.obstacles) {
+        if (Math.abs(o.y - py) < 12) {
+          const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
+          if (!inGap) { takeHit(py); break; }
+        }
+      }
+    },
+    render() {
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, o.y - 7, o.gapX, 14);
+        cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  tunnel: {
+    name: "TUNNEL WEAVE",
+    howto: "stay inside the winding tunnel",
+    modName: { drift: "WOBBLE", squeeze: "NARROW" },
+    modDesc: { drift: "the tunnel sways extra", squeeze: "tighter tunnel, +250 finish bonus" },
+    reset() {
+      // Centerline = three layered seeded sines; walls = center +- width that
+      // tightens over the run. dist 0 starts above the screen so there's a
+      // grace runway before the first squeeze reaches the orb.
+      const a1 = 60 + G.rng()*50, a2 = 30 + G.rng()*30, a3 = 12 + G.rng()*12;
+      const p1 = G.rng()*7, p2 = G.rng()*7, p3 = G.rng()*7;
+      const f1 = .0021 + G.rng()*.0008, f2 = .0052 + G.rng()*.0016, f3 = .011 + G.rng()*.004;
+      const sway = G.mod === "drift" ? 1.4 : 1;
+      const total = avgCourseSpeed() * RUN_SECS * 1.15;
+      for (let dist = 0; dist < total; dist += 16) {
+        const cxm = W/2 + sway * (a1*Math.sin(dist*f1+p1) + a2*Math.sin(dist*f2+p2) + a3*Math.sin(dist*f3+p3)) * 0.55;
+        G.path.push({ x: Math.max(70, Math.min(W - 70, cxm)) });
+      }
+      G.tunnelW = d => (150 - 62 * Math.min(d / total, 1)) * (G.mod === "squeeze" ? 0.8 : 1);
+      const step = G.mod === "rush" ? 90 : 150;
+      for (let dist = 260; dist < total; dist += step + G.rng()*60) {
+        const seg = G.path[Math.floor(dist/16)];
+        if (seg) G.coinDots.push({ y: -dist, x: seg.x + (G.rng()-.5)*30, got: false });
+      }
+    },
+    update(dt, py, vs) {
+      G.traveled += vs;
+      const dist = G.traveled - py;
+      if (dist < 0 || G.inv > 0) return;
+      const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))];
+      if (!seg) return;
+      if (Math.abs(G.px - seg.x) > G.tunnelW(dist) - 12) {
+        takeHit(py);
+        G.targetX = seg.x;   // bounce back toward the channel
+      }
+    },
+    render() {
+      cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+      cx.fillStyle = "#0fbcd8";
+      const Lp = [], Rp = [];
+      for (let sy = -24; sy <= H + 24; sy += 16) {
+        const dist = G.traveled - sy;
+        if (dist < 0) { Lp.push([-40, sy]); Rp.push([W + 40, sy]); continue; }
+        const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))] || { x: W/2 };
+        const halfW = G.tunnelW(dist);
+        Lp.push([seg.x - halfW, sy]); Rp.push([seg.x + halfW, sy]);
+      }
+      cx.beginPath(); cx.moveTo(-2, -24);
+      for (const [x, y] of Lp) cx.lineTo(x, y);
+      cx.lineTo(-2, H + 24); cx.closePath(); cx.fill();
+      cx.beginPath(); cx.moveTo(W + 2, -24);
+      for (const [x, y] of Rp) cx.lineTo(x, y);
+      cx.lineTo(W + 2, H + 24); cx.closePath(); cx.fill();
+      cx.shadowBlur = 0;
+    },
+  },
+
+  meteor: {
+    name: "METEOR STORM",
+    howto: "dodge the falling rocks",
+    modName: { drift: "FRENZY", squeeze: "BIG ROCKS" },
+    modDesc: { drift: "way more rocks", squeeze: "huge meteors, +250 finish bonus" },
+    reset() {
+      // Rocks fall faster than the world scroll (each has its own multiplier),
+      // so threats arrive at mixed speeds instead of as a fixed course.
+      const total = avgCourseSpeed() * RUN_SECS * 1.6;
+      const gap = G.mod === "drift" ? 95 : 135;
+      let dist = 300;
+      while (dist < total) {
+        G.rocks.push({
+          y: -dist,
+          x: 20 + G.rng() * (W - 40),
+          r: (14 + G.rng() * 18) * (G.mod === "squeeze" ? 1.35 : 1),
+          mul: 1 + G.rng() * 0.7,
+          vx: (G.rng() - .5) * 40,
+          hitDone: false,
+        });
+        dist += gap + G.rng() * 110;
+      }
+      const cstep = G.mod === "rush" ? 130 : 220;
+      for (let d = 250; d < total; d += cstep + G.rng()*80)
+        G.coinDots.push({ y: -d, x: 30 + G.rng() * (W - 60), got: false });
+    },
+    update(dt, py, vs) {
+      for (const r of G.rocks) {
+        r.y += vs * r.mul;
+        r.x += r.vx * dt;
+        if (r.x < r.r) { r.x = r.r; r.vx *= -1; }
+        if (r.x > W - r.r) { r.x = W - r.r; r.vx *= -1; }
+        if (!r.hitDone && G.inv <= 0 && Math.hypot(r.x - G.px, r.y - py) < r.r + 10) {
+          r.hitDone = true; takeHit(py);
+        }
+      }
+    },
+    render() {
+      for (const r of G.rocks) {
+        if (r.y < -40 || r.y > H + 40) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 12;
+        cx.fillStyle = "#0fbcd8";
+        cx.beginPath(); cx.arc(r.x, r.y, r.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+        cx.fillStyle = "rgba(7,6,15,.35)";   // crater shading
+        cx.beginPath(); cx.arc(r.x - r.r*.3, r.y - r.r*.25, r.r*.45, 0, 7); cx.fill();
+      }
+    },
+  },
+};
+
+function takeHit(py) {
+  G.hearts--; G.inv = 1.2; G.shake = 14;
+  burst(G.px, py, "#ff2ea6");
+  if (navigator.vibrate) navigator.vibrate(80);
+  if (G.hearts <= 0) endRun(true);
+}
+
 function courseReset(playerCfg, boost) {
   G.rng = mulberry32(seedFromDate(today()));           // same course for everyone
   G.mod = todayMod().id;                               // same twist for everyone
+  G.game = weekGame();                                 // same game all week
   G.t = 0; G.px = W/2; G.targetX = W/2;
   G.hearts = boost === "shield" ? 4 : 3;
   G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
-  G.obstacles = []; G.coinDots = []; G.sparks = [];
+  G.obstacles = []; G.coinDots = []; G.sparks = []; G.rocks = []; G.path = [];
+  G.traveled = 0;
   G.speedScale = playerCfg.speed; G.mult = playerCfg.mult;
   G.boost = boost; G.slow = boost === "slowmo" ? 0.9 : 1; G.magnet = boost === "magnet";
-  G.nextBarY = -60; G.barCount = 0;
-  // Pre-generate the whole 90s course deterministically: bars spaced by time.
-  // World speed ramps 150 -> 330 px/s (before handicap), bars every ~1.15s.
-  // Mod effects apply AFTER each rng draw so the draw sequence stays stable.
-  let y = -80;
-  const totalDist = avgCourseSpeed() * RUN_SECS * 1.15;
-  while (y > -totalDist) {
-    let gapW = 96 + G.rng() * 70 * (y > -totalDist * .3 ? 1.4 : 1);   // wider gaps early
-    if (G.mod === "squeeze") gapW *= 0.8;
-    const gapX = 24 + G.rng() * (W - 48 - gapW);
-    const driftFrom = G.mod === "drift" ? 2 : 8;
-    const driftChance = G.mod === "drift" ? 1.01 : 0.3;
-    const drift = (G.barCount > driftFrom && G.rng() < driftChance) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
-    G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2 });
-    // coin line through/near the gap (most bars on COIN RUSH days)
-    if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
-      const cxm = gapX + gapW / 2;
-      for (let i = 0; i < 3; i++)
-        G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
-    }
-    G.barCount++;
-    y -= 120 + G.rng() * 90;
-  }
+  G.barCount = 0;
+  G.game.reset();
 }
 function avgCourseSpeed(){ return (150 + 330) / 2; }
 function worldSpeed() {
@@ -357,10 +533,10 @@ function endRun(died) {
   document.getElementById("newBest").classList.toggle("hidden", !isBest);
   document.getElementById("resDetail").innerHTML =
     `${G.coins} coins &times; ${coinVal} &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
-    (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : " &nbsp;// down in the maze") +
+    (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : " &nbsp;// down before the end") +
     (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "") +
     `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`;
-  document.getElementById("resDate").textContent = `${dateLabel()} // ${todayMod().name}`;
+  document.getElementById("resDate").textContent = `${dateLabel()} // ${G.game.name} // ${modDisplay().name}`;
   document.getElementById("againBtn").disabled = runs >= MAX_RUNS;
   document.getElementById("againBtn").textContent = runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
   show("results");
@@ -383,28 +559,12 @@ function loop(ts) {
 
   const vs = worldSpeed() * dt;
   const py = H * 0.78;
-  for (const o of G.obstacles) o.y += vs;
   for (const c of G.coinDots) c.y += vs;
 
-  // moving gaps drift
-  for (const o of G.obstacles) if (o.drift) {
-    o.gapX += Math.sin(G.t * 1.6 + o.phase) * o.drift * dt;
-    o.gapX = Math.max(10, Math.min(W - 10 - o.gapW, o.gapX));
-  }
-
-  // collisions
+  // hazards: the week's game moves its own obstacles and calls takeHit()
   if (G.inv > 0) G.inv -= dt;
-  for (const o of G.obstacles) {
-    if (Math.abs(o.y - py) < 12 && G.inv <= 0) {
-      const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
-      if (!inGap) {
-        G.hearts--; G.inv = 1.2; G.shake = 14;
-        burst(G.px, py, "#ff2ea6");
-        if (navigator.vibrate) navigator.vibrate(80);
-        if (G.hearts <= 0) { endRun(true); return; }
-      }
-    }
-  }
+  G.game.update(dt, py, vs);
+  if (!G.running) return;   // takeHit drained the last heart mid-update
   // coins: everyone gets a small pull so near-misses still collect (the
   // finger covers the orb on a phone -- exact alignment shouldn't be the
   // skill); the MAGNET boost is the same idea with real range.
@@ -442,15 +602,8 @@ function draw(py) {
   for (let y = -40 + off; y < H; y += 40) { cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
   for (let x = 0; x <= W; x += 40) { cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, H); cx.stroke(); }
 
-  // obstacles: neon bars with gap
-  for (const o of G.obstacles) {
-    if (o.y < -20 || o.y > H + 20) continue;
-    cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
-    cx.fillStyle = "#0fbcd8";
-    cx.fillRect(0, o.y - 7, o.gapX, 14);
-    cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
-    cx.shadowBlur = 0;
-  }
+  // hazards: the week's game draws its own obstacles
+  G.game.render(py);
   // coins
   for (const c of G.coinDots) {
     if (c.got || c.y < -20 || c.y > H + 20) continue;
@@ -701,7 +854,7 @@ async function share() {
   const rows = ROSTER.map(r => ({ ...r, s: t[r.id]?.score || 0 })).sort((a,b) => b.s - a.s);
   const medal = ["🥇","🥈","🥉","  "];
   const lines = rows.filter(r => r.s).map((r, i) => `${medal[i]} ${r.name} ${r.s.toLocaleString()}`);
-  const txt = `🕹 DAILY GAUNTLET ${dateLabel()} // ${todayMod().name}\n${lines.join("\n")}\n${location.href.split("?")[0]}`;
+  const txt = `🕹 ${weekGame().name} ${dateLabel()} // ${modDisplay().name}\n${lines.join("\n")}\n${location.href.split("?")[0]}`;
   if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
   try { await navigator.clipboard.writeText(txt); toast("copied -- paste it in the family text"); }
   catch { toast("could not copy"); }
@@ -717,9 +870,15 @@ function toast(msg) {
   t.textContent = msg; t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 2600);
 }
+function modDisplay() {
+  const g = weekGame(), m = todayMod();
+  return { name: g.modName[m.id] || m.name, desc: g.modDesc[m.id] || m.desc };
+}
 function renderHome() {
-  document.getElementById("homeDate").textContent = `${dateLabel()} // SAME MAZE FOR EVERYONE`;
-  const m = todayMod();
+  const g = weekGame();
+  document.getElementById("homeDate").textContent = `${dateLabel()} // SAME COURSE FOR EVERYONE`;
+  document.getElementById("homeGame").textContent = `THIS WEEK'S GAME: ${g.name} -- ${g.howto}`;
+  const m = modDisplay();
   document.getElementById("homeMod").textContent = `TODAY'S TWIST: ${m.name} -- ${m.desc}`;
   const rosterEl = document.getElementById("roster");
   rosterEl.innerHTML = ROSTER.map(r =>
