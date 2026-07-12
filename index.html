@@ -310,8 +310,11 @@ function loop(ts) {
   G.lastTs = ts; G.t += dt;
   if (G.t >= RUN_SECS) { G.finished = true; endRun(false); return; }
 
-  // steer: lerp toward target
-  G.px += (G.targetX - G.px) * Math.min(1, dt * 10);
+  // steer: lerp toward target; held arrow keys glide instead of stepping
+  if (keys.ArrowLeft || keys.a) G.targetX -= 300 * dt;
+  if (keys.ArrowRight || keys.d) G.targetX += 300 * dt;
+  G.targetX = Math.max(14, Math.min(W - 14, G.targetX));
+  G.px += (G.targetX - G.px) * Math.min(1, dt * 12);
   G.px = Math.max(14, Math.min(W - 14, G.px));
 
   const vs = worldSpeed() * dt;
@@ -338,14 +341,15 @@ function loop(ts) {
       }
     }
   }
-  // coins
+  // coins: everyone gets a small pull so near-misses still collect (the
+  // finger covers the orb on a phone -- exact alignment shouldn't be the
+  // skill); the MAGNET boost is the same idea with real range.
+  const pullR = G.magnet ? 95 : 42, pullV = G.magnet ? 240 : 170;
   for (const c of G.coinDots) {
     if (c.got) continue;
-    if (G.magnet) {
-      const dx = G.px - c.x, dy = py - c.y, d = Math.hypot(dx, dy);
-      if (d < 95) { c.x += dx / d * 240 * dt; c.y += dy / d * 240 * dt; }
-    }
-    if (Math.hypot(c.x - G.px, c.y - py) < 18) {
+    const dx = G.px - c.x, dy = py - c.y, d = Math.hypot(dx, dy);
+    if (d > 0 && d < pullR) { c.x += dx / d * pullV * dt; c.y += dy / d * pullV * dt; }
+    if (d < 24) {
       c.got = true; G.coins++; burst(c.x, c.y, "#ffc93c");
     }
   }
@@ -424,17 +428,27 @@ function pointerX(e) {
   const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
   return (clientX - r.left) / r.width * W;
 }
-cv.addEventListener("touchstart", e => { if (G.running) { G.targetX = pointerX(e); e.preventDefault(); } }, {passive:false});
-cv.addEventListener("touchmove",  e => { if (G.running) { G.targetX = pointerX(e); e.preventDefault(); } }, {passive:false});
+// Touch steers RELATIVE to where the drag started: the orb moves by your
+// finger's delta, from wherever the orb already is. Absolute follow made the
+// finger cover the orb and stop-points never felt lined up with the coins
+// (Felix, 2026-07-12). Slight >1 sensitivity so a thumb can sweep full width.
+let touchAnchorX = null, orbAnchorX = null;
+cv.addEventListener("touchstart", e => {
+  if (!G.running) return;
+  touchAnchorX = pointerX(e); orbAnchorX = G.px;
+  e.preventDefault();
+}, {passive:false});
+cv.addEventListener("touchmove", e => {
+  if (!G.running || touchAnchorX === null) return;
+  G.targetX = orbAnchorX + (pointerX(e) - touchAnchorX) * 1.2;
+  e.preventDefault();
+}, {passive:false});
+cv.addEventListener("touchend", () => { touchAnchorX = null; });
+// Desktop cursor is visible, so absolute follow stays right for the mouse.
 cv.addEventListener("mousemove",  e => { if (G.running) G.targetX = pointerX(e); });
 const keys = {};
-addEventListener("keydown", e => {
-  keys[e.key] = true;
-  if (G.running) {
-    if (e.key === "ArrowLeft" || e.key === "a") G.targetX = Math.max(14, G.targetX - 46);
-    if (e.key === "ArrowRight" || e.key === "d") G.targetX = Math.min(W - 14, G.targetX + 46);
-  }
-});
+addEventListener("keydown", e => { keys[e.key] = true; });
+addEventListener("keyup",   e => { keys[e.key] = false; });
 
 /* ================= FIRESTORE SYNC (REST, no SDK) ================= */
 const fsBase = () => CFG.firebase
