@@ -88,6 +88,9 @@
   .board .pts { width: 62px; text-align: right; color: var(--gold); }
   .board .empty { color: var(--dim); }
   .streakline { color: var(--dim); font-size: 11px; margin-top: 8px; letter-spacing: 1px; min-height: 14px; }
+  .weekline { color: var(--dim); font-size: 11px; margin-top: 4px; letter-spacing: 1px; }
+  .champline { color: var(--gold); font-size: 11px; margin-top: 4px; letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(255,201,60,.5); }
   .bigbtn {
     width: 100%; max-width: 360px; padding: 13px; margin-top: 2px;
     font: inherit; font-size: 20px; letter-spacing: 6px; cursor: pointer;
@@ -168,6 +171,8 @@
       <h2>TODAY'S DUEL</h2>
       <div class="board" id="board"><div class="row empty">loading scores...</div></div>
       <div class="streakline" id="streakline"></div>
+      <div class="weekline" id="weekline"></div>
+      <div class="champline" id="champline"></div>
     </div>
     <button class="bigbtn" id="runBtn">RUN</button>
     <div class="runsleft" id="runsLeft"></div>
@@ -254,7 +259,10 @@ function weekIndex() {
   const days = Math.floor((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - WEEK_ANCHOR) / 86400000);
   return Math.floor(days / 7) + 1;
 }
-const GAME_ORDER = ["gauntlet", "tunnel", "meteor"];
+// 4-game cycle (LASER GRID added 2026-07-14). Order keeps the live week
+// stable: week 1 (Jul 13) stays tunnel, meteor Jul 20, laser debuts Jul 27,
+// gauntlet returns Aug 3.
+const GAME_ORDER = ["gauntlet", "tunnel", "meteor", "laser"];
 const weekGame = () => {
   const forced = qs.get("game");            // ?game=tunnel -- testing/practice
   if (forced && GAMES[forced]) return GAMES[forced];
@@ -311,10 +319,13 @@ addEventListener("resize", fit); fit();
 const G = {
   running: false, t: 0, lastTs: 0,
   px: W/2, targetX: W/2, hearts: 3, inv: 0, shake: 0,
-  coins: 0, obstacles: [], coinDots: [], sparks: [],
+  coins: 0, obstacles: [], coinDots: [], sparks: [], floaters: [],
   speedScale: 1, mult: 1, boost: "", slow: 1, magnet: false,
   rng: null, nextBarY: 0, barCount: 0, finished: false,
+  // risk-reward layer (2026-07-14 "not hard or fun enough" pass)
+  combo: 0, bestCombo: 0, coinPts: 0, grazePts: 0, grazes: 0, grazeTimer: 0,
 };
+const comboTier = () => Math.min(5, 1 + Math.floor(G.combo / 8));
 
 /* ================= THE GAMES ================= */
 // Each game owns hazard generation (seeded), per-frame movement + collision,
@@ -333,20 +344,24 @@ const GAMES = {
       let y = -80;
       const totalDist = avgCourseSpeed() * RUN_SECS * 1.15;
       while (y > -totalDist) {
-        let gapW = 96 + G.rng() * 70 * (y > -totalDist * .3 ? 1.4 : 1);   // wider gaps early
+        // HARD: gaps tighten, bars pack closer, and more walls slide as the
+        // run gets deep -- the last third should feel like threading needles.
+        const depth = Math.min(1, -y / totalDist);
+        const late = HARD() ? 1 - 0.30 * depth : 1;
+        let gapW = (96 + G.rng() * 70 * (depth < .3 ? 1.4 : 1)) * late;
         if (G.mod === "squeeze") gapW *= 0.8;
         const gapX = 24 + G.rng() * (W - 48 - gapW);
         const driftFrom = G.mod === "drift" ? 2 : 8;
-        const driftChance = G.mod === "drift" ? 1.01 : 0.3;
+        const driftChance = G.mod === "drift" ? 1.01 : (HARD() ? 0.3 + 0.35 * depth : 0.3);
         const drift = (G.barCount > driftFrom && G.rng() < driftChance) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
-        G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2 });
+        G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2, passed: false });
         if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
           const cxm = gapX + gapW / 2;
           for (let i = 0; i < 3; i++)
             G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
         }
         G.barCount++;
-        y -= 120 + G.rng() * 90;
+        y -= (120 + G.rng() * 90) * (HARD() ? 1 - 0.18 * depth : 1);
       }
     },
     update(dt, py, vs) {
@@ -360,6 +375,14 @@ const GAMES = {
           const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
           if (!inGap) { takeHit(py); break; }
         }
+      }
+      // graze: cleared the bar hugging a gap edge
+      for (const o of G.obstacles) {
+        if (o.passed || o.y <= py + 12) continue;
+        o.passed = true;
+        if (G.inv > 0) continue;
+        const edge = Math.min(G.px - o.gapX, o.gapX + o.gapW - G.px);
+        if (edge > 0 && edge < 30) graze(G.px, py);
       }
     },
     render() {
@@ -389,10 +412,12 @@ const GAMES = {
       const sway = G.mod === "drift" ? 1.4 : 1;
       const total = avgCourseSpeed() * RUN_SECS * 1.15;
       for (let dist = 0; dist < total; dist += 16) {
-        const cxm = W/2 + sway * (a1*Math.sin(dist*f1+p1) + a2*Math.sin(dist*f2+p2) + a3*Math.sin(dist*f3+p3)) * 0.55;
+        // HARD: the tunnel sways wider as the run gets deep
+        const lateSway = HARD() ? 1 + 0.35 * Math.min(dist / total, 1) : 1;
+        const cxm = W/2 + sway * lateSway * (a1*Math.sin(dist*f1+p1) + a2*Math.sin(dist*f2+p2) + a3*Math.sin(dist*f3+p3)) * 0.55;
         G.path.push({ x: Math.max(70, Math.min(W - 70, cxm)) });
       }
-      G.tunnelW = d => (150 - 62 * Math.min(d / total, 1)) * (G.mod === "squeeze" ? 0.8 : 1);
+      G.tunnelW = d => (150 - (HARD() ? 86 : 62) * Math.min(d / total, 1)) * (G.mod === "squeeze" ? 0.8 : 1);
       const step = G.mod === "rush" ? 90 : 150;
       for (let dist = 260; dist < total; dist += step + G.rng()*60) {
         const seg = G.path[Math.floor(dist/16)];
@@ -405,10 +430,15 @@ const GAMES = {
       if (dist < 0 || G.inv > 0) return;
       const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))];
       if (!seg) return;
-      if (Math.abs(G.px - seg.x) > G.tunnelW(dist) - 12) {
+      const off = Math.abs(G.px - seg.x), w = G.tunnelW(dist);
+      if (off > w - 12) {
         takeHit(py);
         G.targetX = seg.x;   // bounce back toward the channel
-      }
+      } else if (off > w - 32) {
+        // graze: riding the wall pays out every half second
+        G.grazeTimer += dt;
+        if (G.grazeTimer > 0.5) { G.grazeTimer = 0; graze(G.px, py, 10); }
+      } else G.grazeTimer = Math.max(0, G.grazeTimer - dt * 2);
     },
     render() {
       cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
@@ -440,18 +470,19 @@ const GAMES = {
       // Rocks fall faster than the world scroll (each has its own multiplier),
       // so threats arrive at mixed speeds instead of as a fixed course.
       const total = avgCourseSpeed() * RUN_SECS * 1.6;
-      const gap = G.mod === "drift" ? 95 : 135;
+      const gap = G.mod === "drift" ? 95 : (HARD() ? 118 : 135);
       let dist = 300;
       while (dist < total) {
         G.rocks.push({
           y: -dist,
           x: 20 + G.rng() * (W - 40),
           r: (14 + G.rng() * 18) * (G.mod === "squeeze" ? 1.35 : 1),
-          mul: 1 + G.rng() * 0.7,
-          vx: (G.rng() - .5) * 40,
-          hitDone: false,
+          mul: 1 + G.rng() * (HARD() ? 0.9 : 0.7),
+          vx: (G.rng() - .5) * (HARD() ? 70 : 40),
+          hitDone: false, passed: false,
         });
-        dist += gap + G.rng() * 110;
+        // HARD: the storm gets denser as the run gets deep
+        dist += (gap + G.rng() * 110) * (HARD() ? 1 - 0.22 * Math.min(dist / total, 1) : 1);
       }
       const cstep = G.mod === "rush" ? 130 : 220;
       for (let d = 250; d < total; d += cstep + G.rng()*80)
@@ -465,6 +496,11 @@ const GAMES = {
         if (r.x > W - r.r) { r.x = W - r.r; r.vx *= -1; }
         if (!r.hitDone && G.inv <= 0 && Math.hypot(r.x - G.px, r.y - py) < r.r + 10) {
           r.hitDone = true; takeHit(py);
+        }
+        // graze: rock slipped past close enough to feel the wind
+        if (!r.passed && r.y > py + r.r) {
+          r.passed = true;
+          if (!r.hitDone && G.inv <= 0 && Math.abs(r.x - G.px) < r.r + 42) graze(G.px, py);
         }
       }
     },
@@ -480,13 +516,104 @@ const GAMES = {
       }
     },
   },
+
+  laser: {
+    name: "LASER GRID",
+    howto: "lasers swap sides -- pass on the dark side",
+    modName: { drift: "STROBE", squeeze: "THICK BEAMS" },
+    modDesc: { drift: "beams swap twice as fast", squeeze: "fat beams, +250 finish bonus" },
+    reset() {
+      // Each row is a full-width beam split at a pivot: one side fires while
+      // the other is dark, swapping on its own seeded rhythm. Steering gets
+      // you to a side; TIMING gets you through alive -- the skill the other
+      // three games don't have. The dark side telegraphs the swap by
+      // flickering as its window closes.
+      const total = avgCourseSpeed() * RUN_SECS * 1.15;
+      const thick = G.mod === "squeeze" ? 13 : 8;
+      let y = -300;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        G.beams.push({
+          y,
+          split: 90 + G.rng() * (W - 180),
+          period: (1.7 + G.rng() * 1.4) * (G.mod === "drift" ? 0.55 : 1) * (1 - 0.25 * depth),
+          phase: G.rng() * Math.PI * 2,
+          thick, passed: false,
+        });
+        if (G.rng() < (G.mod === "rush" ? 0.9 : 0.55)) {
+          const b = G.beams[G.beams.length - 1];
+          G.coinDots.push({ y: y - 64, x: b.split + (G.rng() - .5) * 44, got: false });
+        }
+        y -= (155 + G.rng() * 85) * (1 - 0.18 * depth);
+      }
+    },
+    // sin > 0 -> LEFT side firing; the orb is safe on the dark side
+    hotSide(b) { return Math.sin(G.t * 2 * Math.PI / b.period + b.phase) > 0 ? 0 : 1; },
+    update(dt, py, vs) {
+      for (const b of G.beams) {
+        b.y += vs;
+        if (Math.abs(b.y - py) < b.thick + 10 && G.inv <= 0) {
+          const side = G.px < b.split ? 0 : 1;
+          if (side === this.hotSide(b)) takeHit(py);
+        }
+        if (!b.passed && b.y > py + b.thick + 10) {
+          b.passed = true;
+          // graze: threaded right next to the pivot node
+          if (G.inv <= 0 && Math.abs(G.px - b.split) < 44) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const b of G.beams) {
+        if (b.y < -20 || b.y > H + 20) continue;
+        const s = Math.sin(G.t * 2 * Math.PI / b.period + b.phase);
+        const hot = s > 0 ? 0 : 1;
+        const closing = Math.abs(s) < 0.3;   // dark side about to flip
+        const seg = [[0, b.split], [b.split, W]];
+        for (let i = 0; i < 2; i++) {
+          const [x0, x1] = seg[i];
+          if (i === hot) {
+            cx.shadowColor = "#ff3355"; cx.shadowBlur = 16;
+            cx.fillStyle = "#ff3355";
+            cx.fillRect(x0, b.y - b.thick, x1 - x0, b.thick * 2);
+            cx.shadowBlur = 0;
+          } else {
+            cx.globalAlpha = closing && Math.floor(G.t * 14) % 2 === 0 ? 0.5 : 0.16;
+            cx.fillStyle = "#ff3355";
+            cx.fillRect(x0, b.y - 1.5, x1 - x0, 3);
+            cx.globalAlpha = 1;
+          }
+        }
+        // pivot node + edge emitters
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 10;
+        cx.fillStyle = "#0fbcd8";
+        for (const ex of [4, b.split, W - 4]) {
+          cx.beginPath(); cx.arc(ex, b.y, 5, 0, 7); cx.fill();
+        }
+        cx.shadowBlur = 0;
+      }
+    },
+  },
 };
 
 function takeHit(py) {
   G.hearts--; G.inv = 1.2; G.shake = 14;
+  if (G.combo >= 8) floatText(G.px, py - 30, "COMBO LOST", "#ff2ea6");
+  G.combo = 0;
   burst(G.px, py, "#ff2ea6");
   if (navigator.vibrate) navigator.vibrate(80);
   if (G.hearts <= 0) endRun(true);
+}
+
+// Near-miss reward: skimming a hazard without touching it pays points.
+// Each game decides what counts as a graze; the payout and juice live here.
+function graze(x, y, pts = 15) {
+  if (!HARD()) return;   // scoring mechanics flip on with the Jul 15 tuning
+  G.grazePts += pts; G.grazes++;
+  floatText(x, y, "GRAZE +" + pts, "#19e3ff");
+}
+function floatText(x, y, txt, color) {
+  G.floaters.push({ x: Math.max(40, Math.min(W - 40, x)), y, txt, color, life: 0.9 });
 }
 
 function courseReset(playerCfg, boost) {
@@ -497,15 +624,26 @@ function courseReset(playerCfg, boost) {
   G.hearts = boost === "shield" ? 4 : 3;
   G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
   G.obstacles = []; G.coinDots = []; G.sparks = []; G.rocks = []; G.path = [];
+  G.floaters = []; G.beams = [];
+  G.combo = 0; G.bestCombo = 0; G.coinPts = 0;
+  G.grazePts = 0; G.grazes = 0; G.grazeTimer = 0;
   G.traveled = 0;
   G.speedScale = playerCfg.speed; G.mult = playerCfg.mult;
   G.boost = boost; G.slow = boost === "slowmo" ? 0.9 : 1; G.magnet = boost === "magnet";
   G.barCount = 0;
   G.game.reset();
 }
-function avgCourseSpeed(){ return (150 + 330) / 2; }
+// Ramp went 150->330 for the launch weeks; the family called it too easy
+// (2026-07-14), so it now hits 420 by the end and the courses tighten late.
+// HARD gates the whole difficulty+scoring pass to a day boundary: runs were
+// already on today's board when this shipped, and mixing tunings inside one
+// day breaks same-course-for-everyone. Safe to strip the gate after Jul 15.
+const HARD = () => today() >= "20260715";
+function avgCourseSpeed(){ return HARD() ? (160 + 420) / 2 : (150 + 330) / 2; }
 function worldSpeed() {
-  const ramp = 150 + (330 - 150) * Math.min(G.t / RUN_SECS, 1);
+  const ramp = HARD()
+    ? 160 + (420 - 160) * Math.min(G.t / RUN_SECS, 1)
+    : 150 + (330 - 150) * Math.min(G.t / RUN_SECS, 1);
   return ramp * G.speedScale * G.slow * (G.mod === "turbo" ? 1.15 : 1);
 }
 
@@ -520,9 +658,9 @@ function startRun() {
 function endRun(died) {
   G.running = false;
   const survived = Math.min(G.t, RUN_SECS);
-  const coinVal = G.mod === "rush" ? 20 : 10;
   const finishBonus = died ? 0 : 250 + (G.hearts * 50) + (G.mod === "squeeze" ? 250 : 0);
-  let raw = G.coins * coinVal + Math.floor(survived) * 2 + finishBonus;
+  // coinPts already carries rush doubling + combo tiers per pickup
+  let raw = G.coinPts + G.grazePts + Math.floor(survived) * 2 + finishBonus;
   if (G.mod === "turbo") raw *= 1.25;
   const score = Math.round(raw * G.mult);
   const runs = runsUsed() + 1;
@@ -533,7 +671,10 @@ function endRun(died) {
   document.getElementById("resScore").textContent = score.toLocaleString();
   document.getElementById("newBest").classList.toggle("hidden", !isBest);
   document.getElementById("resDetail").innerHTML =
-    `${G.coins} coins &times; ${coinVal} &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
+    `${G.coins} coins ${G.coinPts}` +
+    (G.bestCombo >= 8 ? ` (best combo ${G.bestCombo})` : "") +
+    (G.grazes ? ` &nbsp;+&nbsp; ${G.grazes} grazes ${G.grazePts}` : "") +
+    ` &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
     (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : " &nbsp;// down before the end") +
     (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "") +
     `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`;
@@ -580,6 +721,13 @@ function loop(ts) {
     if (d > 0 && d < pullR) { c.x += dx / d * pullV * dt; c.y += dy / d * pullV * dt; }
     if (d < 24) {
       c.got = true; G.coins++; burst(c.x, c.y, "#ffc93c");
+      // combo: unbroken coin chains tier up the coin value (x2 at 8, x3 at
+      // 16... capped x5); one hit resets the chain. Greed is the skill.
+      G.combo++; G.bestCombo = Math.max(G.bestCombo, G.combo);
+      const tier = HARD() ? comboTier() : 1;
+      G.coinPts += (G.mod === "rush" ? 20 : 10) * tier;
+      if (HARD() && G.combo >= 8 && G.combo % 8 === 0 && tier > 1)
+        floatText(c.x, c.y - 20, "COMBO x" + tier, "#ffc93c");
     }
   }
   draw(py);
@@ -621,6 +769,15 @@ function draw(py) {
     cx.globalAlpha = s.life * 2; cx.fillStyle = s.color;
     cx.fillRect(s.x - 2, s.y - 2, 4, 4); cx.globalAlpha = 1;
   }
+  // floating score text (graze, combo tiers)
+  cx.font = "bold 12px Menlo, monospace"; cx.textAlign = "center";
+  for (let i = G.floaters.length - 1; i >= 0; i--) {
+    const f = G.floaters[i];
+    f.life -= 0.016; if (f.life <= 0) { G.floaters.splice(i, 1); continue; }
+    f.y -= 34 * 0.016;
+    cx.globalAlpha = Math.min(1, f.life * 1.6); cx.fillStyle = f.color;
+    cx.fillText(f.txt, f.x, f.y); cx.globalAlpha = 1;
+  }
   // player orb
   const blink = G.inv > 0 && Math.floor(G.t * 12) % 2 === 0;
   if (!blink) {
@@ -645,7 +802,9 @@ function draw(py) {
   cx.fillStyle = "#e8e6ff"; cx.font = "bold 15px Menlo, monospace"; cx.textAlign = "left";
   cx.fillText("♥".repeat(Math.max(0, G.hearts)), 12, 26);
   cx.textAlign = "center";
-  cx.fillStyle = "#ffc93c"; cx.fillText(String(G.coins), W/2, 26);
+  const tier = HARD() ? comboTier() : 1;
+  cx.fillStyle = "#ffc93c";
+  cx.fillText(String(G.coins) + (tier > 1 ? "  x" + tier : ""), W/2, 26);
   cx.textAlign = "right";
   const left = Math.max(0, RUN_SECS - G.t);
   cx.fillStyle = left < 10 ? "#ff2ea6" : "#8a86b8";
@@ -814,8 +973,47 @@ async function refreshBoards() {
   // fold in local best in case sync failed
   if (store.player && bestToday() > (t[store.player]?.score || 0))
     t[store.player] = { score: bestToday(), runs: runsUsed() };
+  days[today()] = t;
   renderBoard("board", t); renderBoard("board2", t);
   renderStreak(days);
+  renderWeek(days);
+}
+
+/* ================= WEEKLY CHAMPION ================= */
+// The week runs Mon-Sun; a player's weekly total is the sum of their daily
+// bests. Sunday night's leader is champion, crowned on the home screen all
+// the following week (and pushed through Alfred Monday morning).
+const dstr = d => `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+function mondayOf(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - (x.getDay() + 6) % 7);
+  return x;
+}
+function weekTotals(days) {
+  const curMon = mondayOf(new Date());
+  const lastMon = new Date(curMon); lastMon.setDate(lastMon.getDate() - 7);
+  const cur = {}, last = {};
+  for (const [ds, scores] of Object.entries(days)) {
+    const bucket = ds >= dstr(curMon) ? cur : (ds >= dstr(lastMon) ? last : null);
+    if (!bucket) continue;
+    for (const [pid, v] of Object.entries(scores))
+      bucket[pid] = (bucket[pid] || 0) + (v.score || 0);
+  }
+  return { cur, last };
+}
+const rankedTotals = t => Object.entries(t)
+  .map(([pid, s]) => ({ pid, name: ROSTER.find(r => r.id === pid)?.name || pid, s }))
+  .sort((a, b) => b.s - a.s);
+function renderWeek(days) {
+  const { cur, last } = weekTotals(days);
+  const curR = rankedTotals(cur), lastR = rankedTotals(last);
+  const wl = document.getElementById("weekline"), cl = document.getElementById("champline");
+  wl.textContent = curR.length
+    ? "WEEK SO FAR: " + curR.slice(0, 3).map(r => `${r.name} ${r.s.toLocaleString()}`).join(" / ")
+    : "";
+  cl.textContent = lastR.length
+    ? `LAST WEEK'S CHAMP: ${lastR[0].name} (${lastR[0].s.toLocaleString()})`
+    : "";
 }
 function renderBoard(elId, scores) {
   const el = document.getElementById(elId);
@@ -848,14 +1046,17 @@ function renderStreak(days) {
 
 /* ================= SHARE ================= */
 async function share() {
-  const days = await fetchDays(1);
+  const days = await fetchDays(7);
   const t = days[today()] || {};
   if (store.player && bestToday() > (t[store.player]?.score || 0))
     t[store.player] = { score: bestToday(), runs: runsUsed() };
+  days[today()] = t;
   const rows = ROSTER.map(r => ({ ...r, s: t[r.id]?.score || 0 })).sort((a,b) => b.s - a.s);
   const medal = ["🥇","🥈","🥉","  "];
   const lines = rows.filter(r => r.s).map((r, i) => `${medal[i]} ${r.name} ${r.s.toLocaleString()}`);
-  const txt = `🕹 ${weekGame().name} ${dateLabel()} // ${modDisplay().name}\n${lines.join("\n")}\n${location.href.split("?")[0]}`;
+  const wk = rankedTotals(weekTotals(days).cur);
+  const wkLine = wk.length ? `\n👑 week: ${wk[0].name} leads ${wk[0].s.toLocaleString()}` : "";
+  const txt = `🕹 ${weekGame().name} ${dateLabel()} // ${modDisplay().name}\n${lines.join("\n")}${wkLine}\n${location.href.split("?")[0]}`;
   if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
   try { await navigator.clipboard.writeText(txt); toast("copied -- paste it in the family text"); }
   catch { toast("could not copy"); }
