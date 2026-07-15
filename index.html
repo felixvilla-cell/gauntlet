@@ -218,7 +218,22 @@ const BOOSTS = [
   { id: "magnet", name: "MAGNET", desc: "pulls coins" },
   { id: "slowmo", name: "SLO-MO", desc: "10% slower" },
 ];
-const MAX_RUNS = 3, RUN_SECS = 90;
+const MAX_RUNS = 3;
+// V2 (Felix, 2026-07-15: "still too easy" + "60 seconds" + "new game every
+// day"): runs drop 90s -> 60s, difficulty starts where the old 90s ramp sat
+// with 30s left and climbs past the old ceiling, and the game rotates DAILY
+// through all 14. Day-gated to Jul 16 for the same reason as the Jul 15 pass:
+// today's board already has runs on the old tuning. ?preview=1 unlocks V2
+// early as practice (no run count, no score sync). Gate strippable after
+// Jul 16.
+const PREVIEW = new URLSearchParams(location.search).get("preview") === "1";
+const V2 = () => PREVIEW || today() >= "20260716";
+const RUN_SECS = () => V2() ? 60 : 90;
+// Difficulty progress mapper: every course formula runs on diffP(x) where x
+// is raw progress 0..1 through the run. V2 compresses the whole old curve
+// into the first 0 seconds and keeps climbing (0.667 -> 1.117 of the old
+// scale).
+const diffP = x => V2() ? 0.667 + 0.45 * Math.min(x, 1) : Math.min(x, 1);
 
 // Daily modifier: the date picks one twist for EVERYONE (separate seed stream
 // from the maze layout, so adding mods never reshuffles the course).
@@ -249,24 +264,31 @@ function todayMod() {
   return MODS[prev];
 }
 
-/* ================= WEEKLY GAME ROTATION ================= */
-// A different GAME each week (Felix: "new game every week"), from a fixed
-// Monday anchor so every device agrees. Daily seeds, boosts, twists, PINs and
-// the duel board all carry across games. Launch week (pre-anchor) = gauntlet.
-const WEEK_ANCHOR = Date.UTC(2026, 6, 13);   // Mon Jul 13 2026 -> week 1
-function weekIndex() {
+/* ================= GAME ROTATION ================= */
+// V2 (Felix, 2026-07-15): a DIFFERENT game every DAY, cycling through all 14
+// from a fixed anchor so every device agrees. Pre-V2 (through Jul 15) it was
+// weekly through the original 4. Daily seeds, boosts, twists, PINs and the
+// duel board all carry across games.
+const ROT_ANCHOR = Date.UTC(2026, 6, 13);   // Mon Jul 13 2026
+function daysSinceAnchor() {
   const now = new Date();
-  const days = Math.floor((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - WEEK_ANCHOR) / 86400000);
-  return Math.floor(days / 7) + 1;
+  return Math.floor((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - ROT_ANCHOR) / 86400000);
 }
-// 4-game cycle (LASER GRID added 2026-07-14). Order keeps the live week
-// stable: week 1 (Jul 13) stays tunnel, meteor Jul 20, laser debuts Jul 27,
-// gauntlet returns Aug 3.
-const GAME_ORDER = ["gauntlet", "tunnel", "meteor", "laser"];
-const weekGame = () => {
+// Order interleaves steering / timing / chase / memory mechanics so
+// back-to-back days never feel samey. Jul 16 (day 3) = crushers, brand new.
+const GAME_ORDER = ["gauntlet", "laser", "hunter", "crushers", "tunnel",
+                    "slalom", "phantom", "pong", "meteor", "windmill",
+                    "wind", "mines", "pistons", "turrets"];
+const WEEK_ORDER = ["gauntlet", "tunnel", "meteor", "laser"];   // legacy weekly
+const currentGame = () => {
   const forced = qs.get("game");            // ?game=tunnel -- testing/practice
   if (forced && GAMES[forced]) return GAMES[forced];
-  return GAMES[GAME_ORDER[((weekIndex() % GAME_ORDER.length) + GAME_ORDER.length) % GAME_ORDER.length]];
+  if (V2()) {
+    const i = daysSinceAnchor() % GAME_ORDER.length;
+    return GAMES[GAME_ORDER[(i + GAME_ORDER.length) % GAME_ORDER.length]];
+  }
+  const w = Math.floor(daysSinceAnchor() / 7) + 1;
+  return GAMES[WEEK_ORDER[((w % 4) + 4) % 4]];
 };
 
 /* ================= DAILY SEED ================= */
@@ -342,17 +364,17 @@ const GAMES = {
       // time. World speed ramps 150 -> 330 px/s (before handicap). Mod effects
       // apply AFTER each rng draw so the draw sequence stays stable.
       let y = -80;
-      const totalDist = avgCourseSpeed() * RUN_SECS * 1.15;
+      const totalDist = avgCourseSpeed() * RUN_SECS() * 1.15;
       while (y > -totalDist) {
-        // HARD: gaps tighten, bars pack closer, and more walls slide as the
+        // Depth: gaps tighten, bars pack closer, and more walls slide as the
         // run gets deep -- the last third should feel like threading needles.
         const depth = Math.min(1, -y / totalDist);
-        const late = HARD() ? 1 - 0.30 * depth : 1;
-        let gapW = (96 + G.rng() * 70 * (depth < .3 ? 1.4 : 1)) * late;
+        const late = 1 - 0.30 * diffP(depth);
+        let gapW = (96 + G.rng() * 70 * (diffP(depth) < .3 ? 1.4 : 1)) * late;
         if (G.mod === "squeeze") gapW *= 0.8;
         const gapX = 24 + G.rng() * (W - 48 - gapW);
         const driftFrom = G.mod === "drift" ? 2 : 8;
-        const driftChance = G.mod === "drift" ? 1.01 : (HARD() ? 0.3 + 0.35 * depth : 0.3);
+        const driftChance = G.mod === "drift" ? 1.01 : 0.3 + 0.35 * diffP(depth);
         const drift = (G.barCount > driftFrom && G.rng() < driftChance) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
         G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2, passed: false });
         if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
@@ -361,7 +383,7 @@ const GAMES = {
             G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
         }
         G.barCount++;
-        y -= (120 + G.rng() * 90) * (HARD() ? 1 - 0.18 * depth : 1);
+        y -= (120 + G.rng() * 90) * (1 - 0.18 * diffP(depth));
       }
     },
     update(dt, py, vs) {
@@ -410,14 +432,14 @@ const GAMES = {
       const p1 = G.rng()*7, p2 = G.rng()*7, p3 = G.rng()*7;
       const f1 = .0021 + G.rng()*.0008, f2 = .0052 + G.rng()*.0016, f3 = .011 + G.rng()*.004;
       const sway = G.mod === "drift" ? 1.4 : 1;
-      const total = avgCourseSpeed() * RUN_SECS * 1.15;
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
       for (let dist = 0; dist < total; dist += 16) {
-        // HARD: the tunnel sways wider as the run gets deep
-        const lateSway = HARD() ? 1 + 0.35 * Math.min(dist / total, 1) : 1;
+        // Depth: the tunnel sways wider as the run gets deep
+        const lateSway = 1 + 0.35 * diffP(dist / total);
         const cxm = W/2 + sway * lateSway * (a1*Math.sin(dist*f1+p1) + a2*Math.sin(dist*f2+p2) + a3*Math.sin(dist*f3+p3)) * 0.55;
         G.path.push({ x: Math.max(70, Math.min(W - 70, cxm)) });
       }
-      G.tunnelW = d => (150 - (HARD() ? 86 : 62) * Math.min(d / total, 1)) * (G.mod === "squeeze" ? 0.8 : 1);
+      G.tunnelW = d => (150 - 86 * diffP(d / total)) * (G.mod === "squeeze" ? 0.8 : 1);
       const step = G.mod === "rush" ? 90 : 150;
       for (let dist = 260; dist < total; dist += step + G.rng()*60) {
         const seg = G.path[Math.floor(dist/16)];
@@ -469,20 +491,20 @@ const GAMES = {
     reset() {
       // Rocks fall faster than the world scroll (each has its own multiplier),
       // so threats arrive at mixed speeds instead of as a fixed course.
-      const total = avgCourseSpeed() * RUN_SECS * 1.6;
-      const gap = G.mod === "drift" ? 95 : (HARD() ? 118 : 135);
+      const total = avgCourseSpeed() * RUN_SECS() * 1.6;
+      const gap = G.mod === "drift" ? 95 : 118;
       let dist = 300;
       while (dist < total) {
         G.rocks.push({
           y: -dist,
           x: 20 + G.rng() * (W - 40),
           r: (14 + G.rng() * 18) * (G.mod === "squeeze" ? 1.35 : 1),
-          mul: 1 + G.rng() * (HARD() ? 0.9 : 0.7),
-          vx: (G.rng() - .5) * (HARD() ? 70 : 40),
+          mul: 1 + G.rng() * 0.9,
+          vx: (G.rng() - .5) * 70,
           hitDone: false, passed: false,
         });
-        // HARD: the storm gets denser as the run gets deep
-        dist += (gap + G.rng() * 110) * (HARD() ? 1 - 0.22 * Math.min(dist / total, 1) : 1);
+        // Depth: the storm gets denser as the run gets deep
+        dist += (gap + G.rng() * 110) * (1 - 0.22 * diffP(dist / total));
       }
       const cstep = G.mod === "rush" ? 130 : 220;
       for (let d = 250; d < total; d += cstep + G.rng()*80)
@@ -528,7 +550,7 @@ const GAMES = {
       // you to a side; TIMING gets you through alive -- the skill the other
       // three games don't have. The dark side telegraphs the swap by
       // flickering as its window closes.
-      const total = avgCourseSpeed() * RUN_SECS * 1.15;
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
       const thick = G.mod === "squeeze" ? 13 : 8;
       let y = -300;
       while (y > -total) {
@@ -594,6 +616,588 @@ const GAMES = {
       }
     },
   },
+
+  /* ---- the 2026-07-15 ten (Felix: "14 games total, new game every day") --
+     All share steering/coins/boosts/scoring; each brings ONE new skill:
+     crushers=arrival timing, slalom=forced weaving, hunter=juking chasers,
+     pong=moving-target reads, windmill=rotational timing, mines=area denial,
+     pistons=rhythm windows, phantom=reaction/memory, turrets=dodging aimed
+     fire, wind=fighting drift. Layouts are seeded; anything aimed at the
+     PLAYER (drones, mines, turrets) reacts live -- same course, your moves. */
+
+  crushers: {
+    name: "THE CRUSHERS",
+    howto: "jaws breathe open and shut -- time your pass",
+    modName: { drift: "FAST JAWS", squeeze: "IRON JAWS" },
+    modDesc: { drift: "jaws snap twice as fast", squeeze: "smaller openings, +250 finish bonus" },
+    halfGap(c) { return 30 + (c.base - 30) * (0.5 + 0.5 * Math.sin(G.t * 2 * Math.PI / c.period + c.phase)); },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -140;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        const cxm = 60 + G.rng() * (W - 120);
+        let base = (64 + G.rng() * 26) * (1 - 0.18 * diffP(depth));
+        if (G.mod === "squeeze") base *= 0.82;
+        G.things.push({ y, cxm, base: Math.max(38, base),
+          period: (1.5 + G.rng() * 1.0) * (G.mod === "drift" ? 0.6 : 1),
+          phase: G.rng() * 6.28, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.9 : 0.6))
+          G.coinDots.push({ y: y - 56, x: cxm + (G.rng() - .5) * 40, got: false });
+        y -= (150 + G.rng() * 70) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const c of G.things) {
+        c.y += vs;
+        const hg = this.halfGap(c);
+        if (Math.abs(c.y - py) < 12 && G.inv <= 0 && Math.abs(G.px - c.cxm) > hg - 10)
+          takeHit(py);
+        if (!c.passed && c.y > py + 12) {
+          c.passed = true;
+          if (G.inv <= 0 && hg < 46 && Math.abs(G.px - c.cxm) <= hg - 10) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const c of G.things) {
+        if (c.y < -20 || c.y > H + 20) continue;
+        const hg = this.halfGap(c);
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, c.y - 7, c.cxm - hg, 14);
+        cx.fillRect(c.cxm + hg, c.y - 7, W - c.cxm - hg, 14);
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#e8e6ff";                     // jaw tips
+        cx.fillRect(c.cxm - hg - 3, c.y - 7, 3, 14);
+        cx.fillRect(c.cxm + hg, c.y - 7, 3, 14);
+      }
+    },
+  },
+
+  slalom: {
+    name: "SLALOM",
+    howto: "gates alternate sides -- weave through",
+    modName: { drift: "SWINGING GATES", squeeze: "LONG GATES" },
+    modDesc: { drift: "gates sway side to side", squeeze: "longer gates, +250 finish bonus" },
+    gateLen(g) { return g.len + (g.amp ? Math.sin(G.t * 1.8 + g.phase) * g.amp : 0); },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let side = G.rng() < .5 ? 0 : 1, y = -160;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let len = W * (0.50 + G.rng() * 0.12 + 0.09 * diffP(depth));
+        const amp = G.mod === "drift" ? 24 + G.rng() * 20 : 0;
+        const phase = G.rng() * 6.28;
+        if (G.mod === "squeeze") len *= 1.08;
+        len = Math.min(W - 84, len);
+        G.things.push({ y, side, len, amp, phase, passed: false });
+        const openMid = side === 0 ? len + (W - len) / 2 : (W - len) / 2;
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.7))
+          G.coinDots.push({ y: y - 50, x: openMid + (G.rng() - .5) * 36, got: false });
+        side ^= 1;
+        y -= (135 + G.rng() * 55) * (1 - 0.12 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const g of G.things) {
+        g.y += vs;
+        const L = this.gateLen(g);
+        const edge = g.side === 0 ? L : W - L;
+        if (Math.abs(g.y - py) < 12 && G.inv <= 0) {
+          if ((g.side === 0 && G.px < L + 10) || (g.side === 1 && G.px > W - L - 10))
+            takeHit(py);
+        }
+        if (!g.passed && g.y > py + 12) {
+          g.passed = true;
+          if (G.inv <= 0 && Math.abs(G.px - edge) < 34) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const g of G.things) {
+        if (g.y < -20 || g.y > H + 20) continue;
+        const L = this.gateLen(g);
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        if (g.side === 0) cx.fillRect(0, g.y - 6, L, 12);
+        else cx.fillRect(W - L, g.y - 6, L, 12);
+        cx.shadowBlur = 0;
+        const tip = g.side === 0 ? L : W - L;          // gold flag at the tip
+        cx.fillStyle = "#ffc93c";
+        cx.beginPath();
+        cx.moveTo(tip, g.y - 6);
+        cx.lineTo(tip + (g.side === 0 ? 14 : -14), g.y);
+        cx.lineTo(tip, g.y + 6);
+        cx.closePath(); cx.fill();
+      }
+    },
+  },
+
+  hunter: {
+    name: "HUNTER",
+    howto: "drones chase you -- juke them late",
+    modName: { drift: "SWARM", squeeze: "BIG DRONES" },
+    modDesc: { drift: "way more drones", squeeze: "giant drones, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.05;
+      const step = G.mod === "drift" ? 190 : 275;
+      let dist = 400;
+      while (dist < total) {
+        const depth = Math.min(1, dist / total);
+        G.things.push({ y: -dist, x: 30 + G.rng() * (W - 60),
+          r: 12 * (G.mod === "squeeze" ? 1.5 : 1),
+          agil: 55 + 60 * diffP(depth), passed: false, hitDone: false });
+        dist += (step + G.rng() * 140) * (1 - 0.18 * diffP(depth));
+      }
+      for (let d = 300; d < total; d += (G.mod === "rush" ? 130 : 210) + G.rng() * 90)
+        G.coinDots.push({ y: -d, x: 30 + G.rng() * (W - 60), got: false });
+    },
+    update(dt, py, vs) {
+      for (const d of G.things) {
+        d.y += vs * 1.08;
+        if (d.y > -100 && d.y < py - 6) {              // chase until level, then commit
+          const dx = G.px - d.x;
+          d.x += Math.sign(dx) * Math.min(Math.abs(dx), d.agil * dt);
+        }
+        if (!d.hitDone && G.inv <= 0 && Math.hypot(d.x - G.px, d.y - py) < d.r + 10) {
+          d.hitDone = true; takeHit(py);
+        }
+        if (!d.passed && d.y > py + d.r) {
+          d.passed = true;
+          if (!d.hitDone && G.inv <= 0 && Math.abs(d.x - G.px) < d.r + 44) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const d of G.things) {
+        if (d.y < -30 || d.y > H + 30) continue;
+        cx.shadowColor = "#c46bff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#c46bff";
+        cx.beginPath();                                 // down-pointing drone
+        cx.moveTo(d.x, d.y + d.r);
+        cx.lineTo(d.x - d.r * .9, d.y - d.r * .7);
+        cx.lineTo(d.x + d.r * .9, d.y - d.r * .7);
+        cx.closePath(); cx.fill();
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#fff";
+        cx.beginPath(); cx.arc(d.x, d.y - d.r * .15, 2.6, 0, 7); cx.fill();
+      }
+    },
+  },
+
+  pong: {
+    name: "BOUNCE ALLEY",
+    howto: "balls ricochet wall to wall -- read the bounce",
+    modName: { drift: "SPEED BALLS", squeeze: "BIG BALLS" },
+    modDesc: { drift: "balls fly 50% faster", squeeze: "huge balls, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -180;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        const mk = yy => G.things.push({ y: yy, x: 20 + G.rng() * (W - 40),
+          r: (9 + G.rng() * 5) * (G.mod === "squeeze" ? 1.45 : 1),
+          vx: (G.rng() < .5 ? -1 : 1) * (150 + G.rng() * 90)
+              * (G.mod === "drift" ? 1.5 : 1) * (1 + 0.3 * diffP(depth)),
+          passed: false, hitDone: false });
+        mk(y);
+        if (G.rng() < 0.2 + 0.35 * diffP(depth)) mk(y - 34);
+        if (G.rng() < (G.mod === "rush" ? 0.85 : 0.5))
+          G.coinDots.push({ y: y - 76, x: 24 + G.rng() * (W - 48), got: false });
+        y -= (125 + G.rng() * 70) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const b of G.things) {
+        b.y += vs; b.x += b.vx * dt;
+        if (b.x < b.r) { b.x = b.r; b.vx *= -1; }
+        if (b.x > W - b.r) { b.x = W - b.r; b.vx *= -1; }
+        if (!b.hitDone && G.inv <= 0 && Math.hypot(b.x - G.px, b.y - py) < b.r + 10) {
+          b.hitDone = true; takeHit(py);
+        }
+        if (!b.passed && b.y > py + b.r) {
+          b.passed = true;
+          if (!b.hitDone && G.inv <= 0 && Math.abs(b.x - G.px) < b.r + 40) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const b of G.things) {
+        if (b.y < -30 || b.y > H + 30) continue;
+        cx.globalAlpha = .3; cx.fillStyle = "#19e3ff";  // motion streak
+        cx.beginPath(); cx.arc(b.x - Math.sign(b.vx) * b.r * 1.3, b.y, b.r * .75, 0, 7); cx.fill();
+        cx.globalAlpha = 1;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  windmill: {
+    name: "SPIN CYCLE",
+    howto: "blades spin -- slip past the sweep",
+    modName: { drift: "TWIN BLADES", squeeze: "LONG BLADES" },
+    modDesc: { drift: "every windmill gets a second blade", squeeze: "longer blades, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -200;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let len = (135 + G.rng() * 55) * (G.mod === "squeeze" ? 1.3 : 1);
+        len = Math.min(255, len);
+        G.things.push({ y, cxm: 70 + G.rng() * (W - 140), len,
+          om: (0.9 + G.rng() * 0.7) * (1 + 0.5 * diffP(depth)) * (G.rng() < .5 ? -1 : 1),
+          phase: G.rng() * 6.28, cross: G.mod === "drift", minD: 999, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65))
+          G.coinDots.push({ y: y - 70, x: 24 + G.rng() * (W - 48), got: false });
+        y -= (175 + G.rng() * 80) * (1 - 0.12 * diffP(depth));
+      }
+    },
+    bladeDist(w, px, py) {
+      const a = w.phase + G.t * w.om;
+      const dirs = w.cross ? [a, a + Math.PI / 2] : [a];
+      let best = 999;
+      for (const ang of dirs) {
+        const dx = Math.cos(ang), dy = Math.sin(ang);
+        const rx = px - w.cxm, ry = py - w.y;
+        const proj = Math.max(-w.len / 2, Math.min(w.len / 2, rx * dx + ry * dy));
+        best = Math.min(best, Math.hypot(rx - dx * proj, ry - dy * proj));
+      }
+      return best;
+    },
+    update(dt, py, vs) {
+      for (const w of G.things) {
+        w.y += vs;
+        if (Math.abs(w.y - py) < w.len / 2 + 24) {
+          const d = this.bladeDist(w, G.px, py);
+          w.minD = Math.min(w.minD, d);
+          if (d < 14 && G.inv <= 0) takeHit(py);
+        }
+        if (!w.passed && w.y > py + w.len / 2 + 24) {
+          w.passed = true;
+          if (G.inv <= 0 && w.minD > 14 && w.minD < 36) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const w of G.things) {
+        if (w.y < -w.len / 2 - 20 || w.y > H + w.len / 2 + 20) continue;
+        const a = w.phase + G.t * w.om;
+        const dirs = w.cross ? [a, a + Math.PI / 2] : [a];
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.strokeStyle = "#0fbcd8"; cx.lineWidth = 9; cx.lineCap = "round";
+        for (const ang of dirs) {
+          cx.beginPath();
+          cx.moveTo(w.cxm - Math.cos(ang) * w.len / 2, w.y - Math.sin(ang) * w.len / 2);
+          cx.lineTo(w.cxm + Math.cos(ang) * w.len / 2, w.y + Math.sin(ang) * w.len / 2);
+          cx.stroke();
+        }
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#ffc93c";                       // hub
+        cx.beginPath(); cx.arc(w.cxm, w.y, 6, 0, 7); cx.fill();
+      }
+    },
+  },
+
+  mines: {
+    name: "MINEFIELD",
+    howto: "get close and they arm -- clear the blast",
+    modName: { drift: "HAIR TRIGGER", squeeze: "BIG BLAST" },
+    modDesc: { drift: "fuses are nearly instant", squeeze: "wider blasts, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      const fuseT = G.mod === "drift" ? 0.28 : 0.5;
+      let dist = 350;
+      while (dist < total) {
+        const depth = Math.min(1, dist / total);
+        const count = 2 + Math.floor(G.rng() * 2) + (G.rng() < diffP(depth) - 0.4 ? 1 : 0);
+        for (let i = 0; i < count; i++)
+          G.things.push({ y: -dist - G.rng() * 90, x: 24 + G.rng() * (W - 48),
+            r: 11, state: 0, fuse: fuseT,
+            blastR: G.mod === "squeeze" ? 80 : 58, blastT: 0 });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.7))
+          G.coinDots.push({ y: -dist - 40, x: 24 + G.rng() * (W - 48), got: false });
+        dist += 150 + G.rng() * 80;
+      }
+    },
+    update(dt, py, vs) {
+      for (const m of G.things) {
+        m.y += vs;
+        if (m.state >= 3) continue;
+        const d = Math.hypot(m.x - G.px, m.y - py);
+        if (m.state < 2 && G.inv <= 0 && d < m.r + 10) {   // rolled straight into it
+          m.state = 3; burst(m.x, m.y, "#ff3355"); takeHit(py); continue;
+        }
+        if (m.state === 0 && d < 80) m.state = 1;          // armed
+        else if (m.state === 1) {
+          m.fuse -= dt;
+          if (m.fuse <= 0) {                                // detonate once
+            m.state = 2; m.blastT = 0.25;
+            if (G.inv <= 0 && d < m.blastR) takeHit(py);
+            else if (G.inv <= 0 && d < m.blastR + 46) graze(G.px, py);
+          }
+        } else if (m.state === 2) {
+          m.blastT -= dt;
+          if (m.blastT <= 0) m.state = 3;
+        }
+      }
+    },
+    render() {
+      for (const m of G.things) {
+        if (m.y < -30 || m.y > H + 30 || m.state === 3) continue;
+        if (m.state === 2) {                               // blast ring
+          const k = 1 - m.blastT / 0.25;
+          cx.globalAlpha = 1 - k;
+          cx.strokeStyle = "#ff3355"; cx.lineWidth = 6;
+          cx.beginPath(); cx.arc(m.x, m.y, m.blastR * (0.4 + 0.6 * k), 0, 7); cx.stroke();
+          cx.globalAlpha = 1;
+          continue;
+        }
+        const hot = m.state === 1 && Math.floor(G.t * 10) % 2 === 0;
+        cx.shadowColor = hot ? "#ff3355" : "#19e3ff"; cx.shadowBlur = 12;
+        cx.fillStyle = "#171430";
+        cx.beginPath(); cx.arc(m.x, m.y, m.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+        cx.strokeStyle = hot ? "#ff3355" : "#0fbcd8"; cx.lineWidth = 2;
+        cx.beginPath(); cx.arc(m.x, m.y, m.r, 0, 7); cx.stroke();
+        cx.fillStyle = hot ? "#ff3355" : "#8a86b8";
+        cx.beginPath(); cx.arc(m.x, m.y, 3, 0, 7); cx.fill();
+      }
+    },
+  },
+
+  pistons: {
+    name: "PISTONS",
+    howto: "rams punch across -- pass on the pull-back",
+    modName: { drift: "DOUBLE TIME", squeeze: "LONG RAMS" },
+    modDesc: { drift: "rams thrust twice as fast", squeeze: "longer rams, +250 finish bonus" },
+    ext(p) { return p.maxL * Math.pow(Math.max(0, Math.sin(G.t * 2 * Math.PI / p.period + p.phase)), 1.7); },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let side = G.rng() < .5 ? 0 : 1, y = -160;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let maxL = W * (0.55 + 0.10 * diffP(depth)) * (G.mod === "squeeze" ? 1.15 : 1);
+        maxL = Math.min(W - 90, maxL);
+        G.things.push({ y, side, maxL,
+          period: (1.4 + G.rng() * 0.9) * (G.mod === "drift" ? 0.55 : 1),
+          phase: G.rng() * 6.28, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65))
+          G.coinDots.push({ y: y - 54, x: side === 0 ? W - 60 + (G.rng()-.5)*30 : 60 + (G.rng()-.5)*30, got: false });
+        side ^= 1;
+        y -= (150 + G.rng() * 70) * (1 - 0.13 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const p of G.things) {
+        p.y += vs;
+        const e = this.ext(p);
+        const tip = p.side === 0 ? e : W - e;
+        if (Math.abs(p.y - py) < 11 && G.inv <= 0) {
+          if ((p.side === 0 && G.px < e + 10) || (p.side === 1 && G.px > W - e - 10))
+            takeHit(py);
+        }
+        if (!p.passed && p.y > py + 11) {
+          p.passed = true;
+          if (G.inv <= 0 && e > p.maxL * 0.3 && Math.abs(G.px - tip) < 34) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const p of G.things) {
+        if (p.y < -20 || p.y > H + 20) continue;
+        const e = this.ext(p);
+        cx.globalAlpha = .18;                            // guide rail
+        cx.fillStyle = "#19e3ff";
+        cx.fillRect(p.side === 0 ? 0 : W - p.maxL, p.y - 1.5, p.maxL, 3);
+        cx.globalAlpha = 1;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(p.side === 0 ? 0 : W - e, p.y - 8, e, 16);
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#e8e6ff";                        // head plate
+        if (e > 4) cx.fillRect(p.side === 0 ? e - 4 : W - e, p.y - 8, 4, 16);
+      }
+    },
+  },
+
+  phantom: {
+    name: "PHANTOM BARS",
+    howto: "the walls only appear as they get close",
+    modName: {}, modDesc: {},
+    reset() {
+      GAMES.gauntlet.reset();
+      // slightly wider gaps than the gauntlet -- you get less warning
+      for (const o of G.obstacles) o.gapW = Math.min(o.gapW * 1.15, W - 60);
+    },
+    update(dt, py, vs) { GAMES.gauntlet.update(dt, py, vs); },
+    render(py) {
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        const a = Math.max(0, Math.min(1, (o.y - (py - 330)) / 190));
+        if (a <= 0.01) continue;
+        cx.globalAlpha = a;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14 * a;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, o.y - 7, o.gapX, 14);
+        cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+        cx.shadowBlur = 0; cx.globalAlpha = 1;
+      }
+    },
+  },
+
+  turrets: {
+    name: "TURRET RUN",
+    howto: "turrets lock on and fire -- dodge the shot",
+    modName: { drift: "RAPID FIRE", squeeze: "HEAVY SHELLS" },
+    modDesc: { drift: "turrets fire twice as fast", squeeze: "fat slow shells, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -240;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        G.things.push({ y, side: G.rng() < .5 ? 0 : 1,
+          cool: (1.7 + G.rng() * 0.8) * (G.mod === "drift" ? 0.55 : 1),
+          timer: 0.6 + G.rng() * 0.8, tx: W / 2, ty: 0, aiming: false });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65))
+          G.coinDots.push({ y: y - 80, x: 40 + G.rng() * (W - 80), got: false });
+        y -= (190 + G.rng() * 90) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      const bR = G.mod === "squeeze" ? 9 : 5;
+      const bV = (G.mod === "squeeze" ? 210 : 280) + 90 * diffP(G.t / RUN_SECS());
+      for (const t of G.things) {
+        t.y += vs;
+        if (t.y < 10 || t.y > py - 40) { t.aiming = false; continue; }
+        t.timer -= dt;
+        if (t.timer <= 0.4 && !t.aiming) { t.aiming = true; t.tx = G.px; t.ty = py; }
+        if (t.timer <= 0) {
+          const x0 = t.side === 0 ? 10 : W - 10;
+          const d = Math.hypot(t.tx - x0, t.ty - t.y) || 1;
+          G.bullets.push({ x: x0, y: t.y, vx: (t.tx - x0) / d * bV, vy: (t.ty - t.y) / d * bV,
+            r: bR, passed: false, hitDone: false });
+          t.timer = t.cool; t.aiming = false;
+        }
+      }
+      for (let i = G.bullets.length - 1; i >= 0; i--) {
+        const b = G.bullets[i];
+        b.x += b.vx * dt; b.y += b.vy * dt + vs;
+        const d = Math.hypot(b.x - G.px, b.y - py);
+        if (!b.hitDone && G.inv <= 0 && d < b.r + 11) { b.hitDone = true; takeHit(py); }
+        if (!b.passed && b.y > py + 14) {
+          b.passed = true;
+          if (!b.hitDone && G.inv <= 0 && Math.abs(b.x - G.px) < b.r + 30) graze(G.px, py, 10);
+        }
+        if (b.y > H + 30 || b.x < -20 || b.x > W + 20) G.bullets.splice(i, 1);
+      }
+    },
+    render(py) {
+      for (const t of G.things) {
+        if (t.y < -20 || t.y > H + 20) continue;
+        const x0 = t.side === 0 ? 4 : W - 4;
+        if (t.aiming && t.y > 10 && t.y < py - 40) {     // telegraph
+          cx.globalAlpha = Math.floor(G.t * 12) % 2 === 0 ? .5 : .22;
+          cx.strokeStyle = "#ff3355"; cx.lineWidth = 1.5;
+          cx.beginPath(); cx.moveTo(x0, t.y); cx.lineTo(t.tx, t.ty); cx.stroke();
+          cx.globalAlpha = 1;
+        }
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 12;
+        cx.fillStyle = "#0fbcd8";
+        cx.beginPath(); cx.arc(x0, t.y, 10, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+        cx.strokeStyle = "#e8e6ff"; cx.lineWidth = 4;    // barrel
+        const d = Math.hypot(t.tx - x0, t.ty - t.y) || 1;
+        cx.beginPath(); cx.moveTo(x0, t.y);
+        cx.lineTo(x0 + (t.tx - x0) / d * 14, t.y + (t.ty - t.y) / d * 14); cx.stroke();
+      }
+      for (const b of G.bullets) {
+        cx.shadowColor = "#ff3355"; cx.shadowBlur = 12;
+        cx.fillStyle = "#ff3355";
+        cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  wind: {
+    name: "CROSSWINDS",
+    howto: "the wind shoves you -- lean into it",
+    modName: { drift: "GALE FORCE" },
+    modDesc: { drift: "wind pushes 50% harder" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -120;
+      while (y > -total) {                               // sparse, wider bars
+        const depth = Math.min(1, -y / total);
+        let gapW = (120 + G.rng() * 60) * (1 - 0.15 * diffP(depth));
+        if (G.mod === "squeeze") gapW *= 0.8;
+        const gapX = 24 + G.rng() * (W - 48 - gapW);
+        G.obstacles.push({ y, gapX, gapW, drift: 0, phase: 0, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.9 : 0.6))
+          G.coinDots.push({ y: y - 60, x: gapX + gapW / 2 + (G.rng() - .5) * 40, got: false });
+        y -= (185 + G.rng() * 80) * (1 - 0.12 * diffP(depth));
+      }
+      let d = 200;                                        // wind bands
+      while (d < total) {
+        const depth = Math.min(1, d / total);
+        G.things.push({ yTop: -d, h: 170 + G.rng() * 90, dir: G.rng() < .5 ? -1 : 1,
+          force: (95 + G.rng() * 55) * (1 + 0.5 * diffP(depth)) * (G.mod === "drift" ? 1.5 : 1) });
+        d += 300 + G.rng() * 120;
+      }
+    },
+    update(dt, py, vs) {
+      for (const o of G.obstacles) {
+        o.y += vs;
+        if (Math.abs(o.y - py) < 12 && G.inv <= 0) {
+          const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
+          if (!inGap) takeHit(py);
+        }
+        if (!o.passed && o.y > py + 12) {
+          o.passed = true;
+          if (G.inv > 0) continue;
+          const edge = Math.min(G.px - o.gapX, o.gapX + o.gapW - G.px);
+          if (edge > 0 && edge < 30) graze(G.px, py);
+        }
+      }
+      for (const z of G.things) {
+        z.yTop += vs;
+        if (py > z.yTop && py < z.yTop + z.h) {
+          const push = z.dir * z.force * dt;
+          G.px = Math.max(14, Math.min(W - 14, G.px + push));
+          G.targetX = Math.max(14, Math.min(W - 14, G.targetX + push));
+        }
+      }
+    },
+    render() {
+      for (const z of G.things) {                        // drifting gust chevrons
+        if (z.yTop > H + 20 || z.yTop + z.h < -20) continue;
+        cx.strokeStyle = "rgba(255,201,60,.4)"; cx.lineWidth = 2;
+        for (let r = 0; r < 5; r++) {
+          const yy = z.yTop + z.h * (r + 0.5) / 5;
+          if (yy < -10 || yy > H + 10) continue;
+          for (let k = 0; k < 4; k++) {
+            const xx = ((k * 100 + r * 37 + G.t * z.dir * 130) % (W + 80) + (W + 80)) % (W + 80) - 40;
+            cx.beginPath();
+            cx.moveTo(xx - 7 * z.dir, yy - 4); cx.lineTo(xx + 7 * z.dir, yy);
+            cx.lineTo(xx - 7 * z.dir, yy + 4);
+            cx.stroke();
+          }
+        }
+      }
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, o.y - 7, o.gapX, 14);
+        cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+        cx.shadowBlur = 0;
+      }
+    },
+  },
 };
 
 function takeHit(py) {
@@ -608,7 +1212,6 @@ function takeHit(py) {
 // Near-miss reward: skimming a hazard without touching it pays points.
 // Each game decides what counts as a graze; the payout and juice live here.
 function graze(x, y, pts = 15) {
-  if (!HARD()) return;   // scoring mechanics flip on with the Jul 15 tuning
   G.grazePts += pts; G.grazes++;
   floatText(x, y, "GRAZE +" + pts, "#19e3ff");
 }
@@ -619,12 +1222,12 @@ function floatText(x, y, txt, color) {
 function courseReset(playerCfg, boost) {
   G.rng = mulberry32(seedFromDate(today()));           // same course for everyone
   G.mod = todayMod().id;                               // same twist for everyone
-  G.game = weekGame();                                 // same game all week
+  G.game = currentGame();                              // same game for everyone today
   G.t = 0; G.px = W/2; G.targetX = W/2;
   G.hearts = boost === "shield" ? 4 : 3;
   G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
   G.obstacles = []; G.coinDots = []; G.sparks = []; G.rocks = []; G.path = [];
-  G.floaters = []; G.beams = [];
+  G.floaters = []; G.beams = []; G.things = []; G.bullets = [];
   G.combo = 0; G.bestCombo = 0; G.coinPts = 0;
   G.grazePts = 0; G.grazes = 0; G.grazeTimer = 0;
   G.traveled = 0;
@@ -633,17 +1236,12 @@ function courseReset(playerCfg, boost) {
   G.barCount = 0;
   G.game.reset();
 }
-// Ramp went 150->330 for the launch weeks; the family called it too easy
-// (2026-07-14), so it now hits 420 by the end and the courses tighten late.
-// HARD gates the whole difficulty+scoring pass to a day boundary: runs were
-// already on today's board when this shipped, and mixing tunings inside one
-// day breaks same-course-for-everyone. Safe to strip the gate after Jul 15.
-const HARD = () => today() >= "20260715";
-function avgCourseSpeed(){ return HARD() ? (160 + 420) / 2 : (150 + 330) / 2; }
+// Speed = 160 + 260 * diffP(progress). Jul-14 tuning ramps 160->420 over
+// 90s; V2 ramps 333->450 over 60s (starts at the old 30s-left mark). The
+// average is exact because the ramp is linear in diffP.
+function avgCourseSpeed(){ return 160 + 260 * (diffP(0) + diffP(1)) / 2; }
 function worldSpeed() {
-  const ramp = HARD()
-    ? 160 + (420 - 160) * Math.min(G.t / RUN_SECS, 1)
-    : 150 + (330 - 150) * Math.min(G.t / RUN_SECS, 1);
+  const ramp = 160 + 260 * diffP(Math.min(G.t / RUN_SECS(), 1));
   return ramp * G.speedScale * G.slow * (G.mod === "turbo" ? 1.15 : 1);
 }
 
@@ -657,16 +1255,17 @@ function startRun() {
 
 function endRun(died) {
   G.running = false;
-  const survived = Math.min(G.t, RUN_SECS);
+  const survived = Math.min(G.t, RUN_SECS());
   const finishBonus = died ? 0 : 250 + (G.hearts * 50) + (G.mod === "squeeze" ? 250 : 0);
   // coinPts already carries rush doubling + combo tiers per pickup
   let raw = G.coinPts + G.grazePts + Math.floor(survived) * 2 + finishBonus;
   if (G.mod === "turbo") raw *= 1.25;
   const score = Math.round(raw * G.mult);
-  const runs = runsUsed() + 1;
-  store.day("runs", String(runs));
+  // Preview runs are pure practice: no run counting, no local best, no sync.
+  const runs = PREVIEW ? runsUsed() : runsUsed() + 1;
+  if (!PREVIEW) store.day("runs", String(runs));
   const prev = bestToday();
-  const isBest = score > prev;
+  const isBest = !PREVIEW && score > prev;
   if (isBest) store.day("best", String(score));
   document.getElementById("resScore").textContent = score.toLocaleString();
   document.getElementById("newBest").classList.toggle("hidden", !isBest);
@@ -677,19 +1276,22 @@ function endRun(died) {
     ` &nbsp;+&nbsp; ${Math.floor(survived)}s survived &times; 2` +
     (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : " &nbsp;// down before the end") +
     (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "") +
-    `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`;
+    (PREVIEW
+      ? `<br>PREVIEW RUN &nbsp;//&nbsp; not scored, runs don't count`
+      : `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`);
   document.getElementById("resDate").textContent = `${dateLabel()} // ${G.game.name} // ${modDisplay().name}`;
-  document.getElementById("againBtn").disabled = runs >= MAX_RUNS;
-  document.getElementById("againBtn").textContent = runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
+  document.getElementById("againBtn").disabled = !PREVIEW && runs >= MAX_RUNS;
+  document.getElementById("againBtn").textContent = !PREVIEW && runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
   show("results");
-  syncScore(Math.max(score, prev), runs).then(() => refreshBoards());
+  if (PREVIEW) refreshBoards();
+  else syncScore(Math.max(score, prev), runs).then(() => refreshBoards());
 }
 
 function loop(ts) {
   if (!G.running) return;
   const dt = Math.min((ts - G.lastTs) / 1000, 0.05);
   G.lastTs = ts; G.t += dt;
-  if (G.t >= RUN_SECS) { G.finished = true; endRun(false); return; }
+  if (G.t >= RUN_SECS()) { G.finished = true; endRun(false); return; }
 
   // steer: lerp toward target; held arrow keys glide instead of stepping
   const mdir = G.mod === "mirror" ? -1 : 1;
@@ -724,9 +1326,9 @@ function loop(ts) {
       // combo: unbroken coin chains tier up the coin value (x2 at 8, x3 at
       // 16... capped x5); one hit resets the chain. Greed is the skill.
       G.combo++; G.bestCombo = Math.max(G.bestCombo, G.combo);
-      const tier = HARD() ? comboTier() : 1;
+      const tier = comboTier();
       G.coinPts += (G.mod === "rush" ? 20 : 10) * tier;
-      if (HARD() && G.combo >= 8 && G.combo % 8 === 0 && tier > 1)
+      if (G.combo >= 8 && G.combo % 8 === 0 && tier > 1)
         floatText(c.x, c.y - 20, "COMBO x" + tier, "#ffc93c");
     }
   }
@@ -802,11 +1404,11 @@ function draw(py) {
   cx.fillStyle = "#e8e6ff"; cx.font = "bold 15px Menlo, monospace"; cx.textAlign = "left";
   cx.fillText("♥".repeat(Math.max(0, G.hearts)), 12, 26);
   cx.textAlign = "center";
-  const tier = HARD() ? comboTier() : 1;
+  const tier = comboTier();
   cx.fillStyle = "#ffc93c";
   cx.fillText(String(G.coins) + (tier > 1 ? "  x" + tier : ""), W/2, 26);
   cx.textAlign = "right";
-  const left = Math.max(0, RUN_SECS - G.t);
+  const left = Math.max(0, RUN_SECS() - G.t);
   cx.fillStyle = left < 10 ? "#ff2ea6" : "#8a86b8";
   cx.fillText(Math.ceil(left) + "s", W - 12, 26);
 }
@@ -1056,7 +1658,7 @@ async function share() {
   const lines = rows.filter(r => r.s).map((r, i) => `${medal[i]} ${r.name} ${r.s.toLocaleString()}`);
   const wk = rankedTotals(weekTotals(days).cur);
   const wkLine = wk.length ? `\n👑 week: ${wk[0].name} leads ${wk[0].s.toLocaleString()}` : "";
-  const txt = `🕹 ${weekGame().name} ${dateLabel()} // ${modDisplay().name}\n${lines.join("\n")}${wkLine}\n${location.href.split("?")[0]}`;
+  const txt = `🕹 ${currentGame().name} ${dateLabel()} // ${modDisplay().name}\n${lines.join("\n")}${wkLine}\n${location.href.split("?")[0]}`;
   if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
   try { await navigator.clipboard.writeText(txt); toast("copied -- paste it in the family text"); }
   catch { toast("could not copy"); }
@@ -1073,13 +1675,15 @@ function toast(msg) {
   setTimeout(() => t.classList.remove("show"), 2600);
 }
 function modDisplay() {
-  const g = weekGame(), m = todayMod();
+  const g = currentGame(), m = todayMod();
   return { name: g.modName[m.id] || m.name, desc: g.modDesc[m.id] || m.desc };
 }
 function renderHome() {
-  const g = weekGame();
-  document.getElementById("homeDate").textContent = `${dateLabel()} // SAME COURSE FOR EVERYONE`;
-  document.getElementById("homeGame").textContent = `THIS WEEK'S GAME: ${g.name} -- ${g.howto}`;
+  const g = currentGame();
+  document.getElementById("homeDate").textContent =
+    PREVIEW ? `${dateLabel()} // PREVIEW MODE` : `${dateLabel()} // SAME COURSE FOR EVERYONE`;
+  document.getElementById("homeGame").textContent =
+    `${V2() ? "TODAY'S GAME" : "THIS WEEK'S GAME"}: ${g.name} -- ${g.howto}`;
   const m = modDisplay();
   document.getElementById("homeMod").textContent = `TODAY'S TWIST: ${m.name} -- ${m.desc}`;
   const rosterEl = document.getElementById("roster");
@@ -1095,20 +1699,20 @@ function renderHome() {
     G.pickedBoost = b.dataset.id; renderHome();
   });
   const used = store.player ? runsUsed() : 0;
-  const canRun = store.player && G.pickedBoost && used < MAX_RUNS;
+  const canRun = store.player && G.pickedBoost && (PREVIEW || used < MAX_RUNS);
   const btn = document.getElementById("runBtn");
   btn.disabled = !canRun;
   btn.textContent = !store.player ? "PICK A PLAYER" : !G.pickedBoost ? "PICK A BOOST"
-    : used >= MAX_RUNS ? "DONE FOR TODAY" : "RUN";
-  document.getElementById("runsLeft").textContent = store.player
-    ? `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "")
-    : "";
+    : PREVIEW ? "PREVIEW RUN" : used >= MAX_RUNS ? "DONE FOR TODAY" : "RUN";
+  document.getElementById("runsLeft").textContent = !store.player ? ""
+    : PREVIEW ? "PREVIEW MODE -- the new rules early, runs don't count"
+    : `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
 }
 document.getElementById("runBtn").onclick = async () => {
   if (await ensurePin(store.player)) startRun();
 };
 document.getElementById("againBtn").onclick = async () => {
-  if (runsUsed() < MAX_RUNS && await ensurePin(store.player)) startRun();
+  if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player)) startRun();
 };
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
 document.getElementById("shareBtn").onclick = share;
