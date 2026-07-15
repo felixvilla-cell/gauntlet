@@ -227,7 +227,11 @@ const MAX_RUNS = 3;
 // early as practice (no run count, no score sync). Gate strippable after
 // Jul 16.
 const PREVIEW = new URLSearchParams(location.search).get("preview") === "1";
-const V2 = () => PREVIEW || today() >= "20260716";
+// Felix flipped V2 live mid-day 2026-07-15 ("just flip it now, reset the
+// day") -- the Jul-15 board was wiped server-side and the local day-key
+// namespace bumped to g2: so stale bests can't re-sync. ?preview=1 survives
+// as a pure practice mode. Legacy 90s/weekly branches are dead code now.
+const V2 = () => true;
 const RUN_SECS = () => V2() ? 60 : 90;
 // Difficulty progress mapper: every course formula runs on diffP(x) where x
 // is raw progress 0..1 through the run. V2 compresses the whole old curve
@@ -315,7 +319,9 @@ const store = {
   get player() { return safeGet("g:player") || ""; },
   set player(v){ safeSet("g:player", v); },
   day(k, v) {
-    const key = `g:${today()}:${store.player}:${k}`;
+    // g2: namespace since the 2026-07-15 mid-day reset -- orphans that day's
+    // pre-V2 runs/bests on every device so they can't count or re-sync.
+    const key = `g2:${today()}:${store.player}:${k}`;
     if (v === undefined) return localStorage.getItem(key);
     localStorage.setItem(key, v);
   },
