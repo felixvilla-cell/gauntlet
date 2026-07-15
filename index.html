@@ -1575,12 +1575,22 @@ async function ensurePin(pid) {
 }
 
 /* ================= LEADERBOARD ================= */
+let healedThisLoad = false;
 async function refreshBoards() {
   const days = await fetchDays(14);
   const t = days[today()] || {};
   // fold in local best in case sync failed
-  if (store.player && bestToday() > (t[store.player]?.score || 0))
+  if (store.player && bestToday() > (t[store.player]?.score || 0)) {
     t[store.player] = { score: bestToday(), runs: runsUsed() };
+    // heal: a run-end PATCH can die in flight (phone locked / Safari killed
+    // right after the score screen) and syncScore only fires at run end --
+    // out of runs means the best never reaches the family board. Re-push it
+    // whenever the page loads and the server is behind. Once per load.
+    if (store.room && !healedThisLoad) {
+      healedThisLoad = true;
+      syncScore(bestToday(), runsUsed());
+    }
+  }
   days[today()] = t;
   renderBoard("board", t); renderBoard("board2", t);
   renderStreak(days);
