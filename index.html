@@ -1597,40 +1597,49 @@ async function refreshBoards() {
   renderWeek(days);
 }
 
-/* ================= WEEKLY CHAMPION ================= */
-// The week runs Mon-Sun; a player's weekly total is the sum of their daily
-// bests. Sunday night's leader is champion, crowned on the home screen all
-// the following week (and pushed through Alfred Monday morning).
+/* ================= DAILY CHALLENGE STANDINGS ================= */
+// A different game every day, so summing raw scores across days would mix
+// apples and oranges. What counts is WHO WON EACH DAY: tally daily wins over
+// the current week (Mon-Sun), and call out yesterday's champ.
 const dstr = d => `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
 function mondayOf(d) {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   x.setDate(x.getDate() - (x.getDay() + 6) % 7);
   return x;
 }
-function weekTotals(days) {
-  const curMon = mondayOf(new Date());
-  const lastMon = new Date(curMon); lastMon.setDate(lastMon.getDate() - 7);
-  const cur = {}, last = {};
+// winner (pid) of a single day's score map, or null if nobody ran
+function dayWinner(scores) {
+  const e = Object.entries(scores || {}).sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
+  return e.length && e[0][1].score ? e[0] : null; // [pid, {score,...}]
+}
+// count of daily wins per player for the current week (Mon..today)
+function weekWins(days) {
+  const curMon = dstr(mondayOf(new Date()));
+  const wins = {};
   for (const [ds, scores] of Object.entries(days)) {
-    const bucket = ds >= dstr(curMon) ? cur : (ds >= dstr(lastMon) ? last : null);
-    if (!bucket) continue;
-    for (const [pid, v] of Object.entries(scores))
-      bucket[pid] = (bucket[pid] || 0) + (v.score || 0);
+    if (ds < curMon) continue;
+    const w = dayWinner(scores);
+    if (w) wins[w[0]] = (wins[w[0]] || 0) + 1;
   }
-  return { cur, last };
+  return wins;
 }
 const rankedTotals = t => Object.entries(t)
   .map(([pid, s]) => ({ pid, name: ROSTER.find(r => r.id === pid)?.name || pid, s }))
   .sort((a, b) => b.s - a.s);
 function renderWeek(days) {
-  const { cur, last } = weekTotals(days);
-  const curR = rankedTotals(cur), lastR = rankedTotals(last);
   const wl = document.getElementById("weekline"), cl = document.getElementById("champline");
-  wl.textContent = curR.length
-    ? "WEEK SO FAR: " + curR.slice(0, 3).map(r => `${r.name} ${r.s.toLocaleString()}`).join(" / ")
+  // wins this week
+  const winsR = rankedTotals(weekWins(days));
+  wl.textContent = winsR.length
+    ? "WINS THIS WEEK: " + winsR.slice(0, 3).map(r => `${r.name} ${r.s}`).join(" / ")
     : "";
-  cl.textContent = lastR.length
-    ? `LAST WEEK'S CHAMP: ${lastR[0].name} (${lastR[0].s.toLocaleString()})`
+  // yesterday's champ (most recent prior day that had a winner)
+  const t = today();
+  const prior = Object.keys(days).filter(d => d < t).sort().reverse();
+  let champ = null;
+  for (const d of prior) { const w = dayWinner(days[d]); if (w) { champ = w; break; } }
+  cl.textContent = champ
+    ? `YESTERDAY'S CHAMP: ${ROSTER.find(r => r.id === champ[0])?.name || champ[0]} (${(champ[1].score || 0).toLocaleString()})`
     : "";
 }
 function renderBoard(elId, scores) {
@@ -1672,8 +1681,8 @@ async function share() {
   const rows = ROSTER.map(r => ({ ...r, s: t[r.id]?.score || 0 })).sort((a,b) => b.s - a.s);
   const medal = ["🥇","🥈","🥉","  "];
   const lines = rows.filter(r => r.s).map((r, i) => `${medal[i]} ${r.name} ${r.s.toLocaleString()}`);
-  const wk = rankedTotals(weekTotals(days).cur);
-  const wkLine = wk.length ? `\n👑 week: ${wk[0].name} leads ${wk[0].s.toLocaleString()}` : "";
+  const wk = rankedTotals(weekWins(days));
+  const wkLine = wk.length ? `\n👑 week: ${wk[0].name} leads with ${wk[0].s} daily win${wk[0].s === 1 ? "" : "s"}` : "";
   const txt = `🕹 ${currentGame().name} ${dateLabel()} // ${modDisplay().name}\n${lines.join("\n")}${wkLine}\n${location.href.split("?")[0]}`;
   if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
   try { await navigator.clipboard.writeText(txt); toast("copied -- paste it in the family text"); }
