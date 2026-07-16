@@ -203,15 +203,17 @@
 /* ================= CONFIG / ROSTER ================= */
 // GAUNTLET_CONFIG comes from config.js: { firebase: {projectId, apiKey}, room: "" }
 const CFG = window.GAUNTLET_CONFIG || { firebase: null, room: "" };
-// Same difficulty for everyone (Felix's call 2026-07-12 -- the auto handicap
-// for the younger boys is retired; speed/mult stay as knobs if he changes
-// his mind).
+// Same difficulty for everyone EXCEPT Grayson (Felix's call 2026-07-16 --
+// Grayson's games run easier than the rest). speed scales the whole world
+// (0.78 = ~22% slower everywhere, more reaction time across all 14 games);
+// mult keeps his easier runs competitive on the shared family board. The
+// blanket handicap was retired 2026-07-12; this is the Grayson-only version.
 const ROSTER = [
   { id: "papa",   name: "PAPI",    speed: 1.00, mult: 1.00 },
   { id: "adelina",name: "ADELINA", speed: 1.00, mult: 1.00 },
   { id: "fd",     name: "FELIX D", speed: 1.00, mult: 1.00 },
   { id: "oliver", name: "OLIVER",  speed: 1.00, mult: 1.00 },
-  { id: "gray",   name: "GRAYSON", speed: 1.00, mult: 1.00 },
+  { id: "gray",   name: "GRAYSON", speed: 0.78, mult: 1.65 },
 ];
 const BOOSTS = [
   { id: "shield", name: "SHIELD", desc: "+1 hit" },
