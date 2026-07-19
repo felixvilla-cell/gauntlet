@@ -47,6 +47,15 @@
     overflow-y: auto; background: var(--bg);
   }
   .hidden { display: none !important; }
+  .mutebtn {
+    position: fixed; z-index: 60;
+    top: max(10px, env(safe-area-inset-top)); right: 12px;
+    width: 38px; height: 38px; border-radius: 10px;
+    background: rgba(10,14,30,.72); color: var(--cyan);
+    border: 1px solid rgba(25,227,255,.5); font-size: 18px; line-height: 1;
+    text-shadow: 0 0 10px var(--cyan); cursor: pointer; padding: 0;
+  }
+  .mutebtn.off { color: #66708a; border-color: #2a3350; text-shadow: none; }
   h1 {
     font-size: 22px; letter-spacing: 4px; margin: 4px 0 2px; text-align: center;
     color: var(--cyan); text-shadow: 0 0 12px var(--cyan), 0 0 40px rgba(25,227,255,.4);
@@ -195,6 +204,7 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <button id="muteBtn" class="mutebtn" aria-label="toggle music">&#9835;</button>
 </div>
 
 <script src="config.js"></script>
@@ -214,7 +224,7 @@ const ROSTER = [
   { id: "adelina",name: "ADELINA", speed: 1.00, mult: 1.00 },
   { id: "fd",     name: "FELIX D", speed: 1.00, mult: 1.00 },
   { id: "oliver", name: "OLIVER",  speed: 0.88, mult: 1.35 },
-  { id: "gray",   name: "GRAYSON", speed: 0.78, mult: 1.65 },
+  { id: "gray",   name: "GRAYSON", speed: 0.60, mult: 2.15 },
 ];
 const BOOSTS = [
   { id: "shield", name: "SHIELD", desc: "+1 hit" },
@@ -222,6 +232,80 @@ const BOOSTS = [
   { id: "slowmo", name: "SLO-MO", desc: "10% slower" },
 ];
 const MAX_RUNS = 3;
+
+/* ================= CHIPTUNE MUSIC =================
+   Self-contained retro arcade soundtrack via Web Audio (no files). A driving
+   4-bar square-lead + octave-bass loop with an off-beat hi-hat. Starts on RUN
+   (a user gesture, so autoplay policy is satisfied) and stops on run end.
+   Muted state persists per device (g2:muted). Felix's ask 2026-07-19. */
+const Music = (() => {
+  const m = n => 440 * Math.pow(2, (n - 69) / 12);        // MIDI note -> Hz
+  // A minor loop: Am - F - C - G. Lead = 8 eighth-notes per bar, bass bounces
+  // root/octave, hats ride the off-beats. 0 = rest.
+  const LEAD = [
+    69,72,76,81,76,72,69,72,   // Am
+    65,69,72,77,72,69,65,69,   // F
+    72,76,79,84,79,76,72,76,   // C
+    67,71,74,79,74,71,67,71,   // G
+  ].map(n => n ? m(n) : 0);
+  const BASS = [
+    45,45,57,45,45,45,57,45,
+    41,41,53,41,41,41,53,41,
+    48,48,60,48,48,48,60,48,
+    43,43,55,43,43,43,55,43,
+  ].map(n => n ? m(n) : 0);
+  const BPM = 138, stepDur = 60 / BPM / 2;                // eighth notes
+  let ctx = null, master = null, tmr = null, step = 0, nextT = 0;
+  let muted = localStorage.getItem("g2:muted") === "1";
+
+  function tone(freq, t, dur, type, peak) {
+    if (!freq) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function hat(t) {
+    const b = ctx.createBuffer(1, 800, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const s = ctx.createBufferSource(), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = b; hp.type = "highpass"; hp.frequency.value = 7000;
+    g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    s.connect(hp); hp.connect(g); g.connect(master); s.start(t);
+  }
+  function schedule() {
+    while (nextT < ctx.currentTime + 0.12) {
+      const s = step % LEAD.length;
+      tone(LEAD[s], nextT, stepDur * 0.9, "square", 0.11);
+      tone(BASS[s], nextT, stepDur * 0.95, "triangle", 0.20);
+      if (s % 2 === 1) hat(nextT);                         // off-beat groove
+      nextT += stepDur; step++;
+    }
+  }
+  return {
+    start() {
+      if (muted) return;
+      if (!ctx) {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+      }
+      if (ctx.state === "suspended") ctx.resume();
+      if (tmr) return;
+      step = 0; nextT = ctx.currentTime + 0.05;
+      schedule(); tmr = setInterval(schedule, 40);
+    },
+    stop() { if (tmr) { clearInterval(tmr); tmr = null; } },
+    muted() { return muted; },
+    toggle() {
+      muted = !muted;
+      localStorage.setItem("g2:muted", muted ? "1" : "0");
+      if (muted) this.stop();
+      return muted;
+    },
+  };
+})();
 // V2 (Felix, 2026-07-15: "still too easy" + "60 seconds" + "new game every
 // day"): runs drop 90s -> 60s, difficulty starts where the old 90s ramp sat
 // with 30s left and climbs past the old ceiling, and the game rotates DAILY
@@ -1259,11 +1343,13 @@ function startRun() {
   courseReset(p, G.pickedBoost || "shield");
   show("game");
   G.running = true; G.lastTs = performance.now();
+  Music.start();
   requestAnimationFrame(loop);
 }
 
 function endRun(died) {
   G.running = false;
+  Music.stop();
   const survived = Math.min(G.t, RUN_SECS());
   const finishBonus = died ? 0 : 250 + (G.hearts * 50) + (G.mod === "squeeze" ? 250 : 0);
   // coinPts already carries rush doubling + combo tiers per pickup
@@ -1743,6 +1829,12 @@ document.getElementById("againBtn").onclick = async () => {
   if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player)) startRun();
 };
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
+(() => {
+  const mb = document.getElementById("muteBtn");
+  const paint = () => { mb.classList.toggle("off", Music.muted()); mb.innerHTML = Music.muted() ? "&#128263;" : "&#9835;"; };
+  paint();
+  mb.onclick = () => { const wasMuted = Music.toggle(); paint(); if (!wasMuted && G.running) Music.start(); };
+})();
 document.getElementById("shareBtn").onclick = share;
 document.getElementById("roomGo").onclick = () => {
   const v = document.getElementById("roomInput").value.trim().toLowerCase();
