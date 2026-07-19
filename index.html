@@ -234,28 +234,64 @@ const BOOSTS = [
 const MAX_RUNS = 3;
 
 /* ================= CHIPTUNE MUSIC =================
-   Self-contained retro arcade soundtrack via Web Audio (no files). A driving
-   4-bar square-lead + octave-bass loop with an off-beat hi-hat. Starts on RUN
-   (a user gesture, so autoplay policy is satisfied) and stops on run end.
-   Muted state persists per device (g2:muted). Felix's ask 2026-07-19. */
+   Self-contained retro arcade soundtrack via Web Audio (no files). EACH of the
+   14 games gets its OWN tune (Felix's ask 2026-07-19) -- every track is a
+   date-stable 4-bar arpeggio loop built from a chord progression: a lead voice
+   (arpeggiates each chord), an octave-bouncing bass, and off-beat hi-hats.
+   Tracks differ by key, tempo, waveform, and arp pattern so the games sound
+   distinct. Starts on RUN (a user gesture, so autoplay policy is satisfied),
+   stops on run end. Muted state persists per device (g2:muted). */
 const Music = (() => {
   const m = n => 440 * Math.pow(2, (n - 69) / 12);        // MIDI note -> Hz
-  // A minor loop: Am - F - C - G. Lead = 8 eighth-notes per bar, bass bounces
-  // root/octave, hats ride the off-beats. 0 = rest.
-  const LEAD = [
-    69,72,76,81,76,72,69,72,   // Am
-    65,69,72,77,72,69,65,69,   // F
-    72,76,79,84,79,76,72,76,   // C
-    67,71,74,79,74,71,67,71,   // G
-  ].map(n => n ? m(n) : 0);
-  const BASS = [
-    45,45,57,45,45,45,57,45,
-    41,41,53,41,41,41,53,41,
-    48,48,60,48,48,48,60,48,
-    43,43,55,43,43,43,55,43,
-  ].map(n => n ? m(n) : 0);
-  const BPM = 138, stepDur = 60 / BPM / 2;                // eighth notes
-  let ctx = null, master = null, tmr = null, step = 0, nextT = 0;
+  // chord tones from a root: [root, third, fifth, octave]. Lead plays these +24
+  // (bright arcade register); bass bounces root <-> root+12.
+  const IVAL = { min: [0,3,7,12], maj: [0,4,7,12], dim: [0,3,6,12], sus: [0,5,7,12] };
+  // 8-step arp patterns index the 4 chord tones (0..3). 0 = rest.
+  const PAT = {
+    updown: [0,1,2,3,2,1,0,1], climb: [0,1,2,3,0,1,2,3], down: [3,2,1,0,3,2,1,0],
+    pedal:  [0,2,0,3,0,2,0,1], skip:  [0,2,1,3,2,0,1,2], bounce: [0,3,1,3,0,3,1,3],
+    gallop: [0,0,2,3,2,2,1,0], sparse:[0,0,0,3,0,0,2,0],
+  };
+  // Build LEAD/BASS 32-step arrays (Hz) from a 4-chord progression + pattern.
+  function build(prog, patName) {
+    const pat = PAT[patName], lead = [], bass = [];
+    for (const [root, type] of prog) {
+      const tones = IVAL[type].map(iv => root + iv);
+      for (let i = 0; i < 8; i++) {
+        const p = pat[i];
+        lead.push(p === 0 && pat === PAT.sparse && i !== 0 ? 0 : m(tones[p] + 24));
+        bass.push(m(i === 2 || i === 6 ? root + 12 : root));
+      }
+    }
+    return { lead, bass };
+  }
+  // One track per game id. bpm, waveforms, arp pattern, and a 4-chord loop.
+  const SPEC = {
+    gauntlet:{bpm:138,lw:"square",  bw:"triangle",pat:"updown",prog:[[45,"min"],[41,"maj"],[48,"maj"],[43,"maj"]]},
+    laser:   {bpm:152,lw:"sawtooth",bw:"triangle",pat:"down",  prog:[[52,"min"],[50,"maj"],[47,"maj"],[45,"maj"]]},
+    hunter:  {bpm:160,lw:"square",  bw:"sawtooth",pat:"gallop",prog:[[50,"min"],[45,"maj"],[48,"maj"],[50,"min"]]},
+    crushers:{bpm:104,lw:"square",  bw:"triangle",pat:"pedal", prog:[[48,"min"],[44,"maj"],[43,"maj"],[48,"min"]]},
+    tunnel:  {bpm:146,lw:"triangle",bw:"triangle",pat:"climb", prog:[[48,"maj"],[45,"min"],[43,"maj"],[41,"maj"]]},
+    slalom:  {bpm:150,lw:"square",  bw:"square",  pat:"bounce",prog:[[43,"maj"],[48,"maj"],[45,"min"],[50,"maj"]]},
+    phantom: {bpm:120,lw:"triangle",bw:"triangle",pat:"sparse",prog:[[46,"dim"],[45,"min"],[44,"maj"],[46,"dim"]]},
+    pong:    {bpm:132,lw:"square",  bw:"square",  pat:"updown",prog:[[48,"maj"],[43,"maj"],[48,"maj"],[45,"min"]]},
+    meteor:  {bpm:144,lw:"sawtooth",bw:"triangle",pat:"skip",  prog:[[45,"min"],[52,"min"],[48,"maj"],[43,"maj"]]},
+    windmill:{bpm:156,lw:"triangle",bw:"square",  pat:"climb", prog:[[50,"maj"],[45,"maj"],[43,"maj"],[50,"maj"]]},
+    wind:    {bpm:128,lw:"triangle",bw:"triangle",pat:"pedal", prog:[[41,"maj"],[48,"maj"],[45,"min"],[43,"maj"]]},
+    mines:   {bpm:140,lw:"square",  bw:"triangle",pat:"sparse",prog:[[47,"min"],[43,"maj"],[42,"maj"],[47,"min"]]},
+    pistons: {bpm:150,lw:"square",  bw:"square",  pat:"pedal", prog:[[40,"min"],[47,"min"],[45,"maj"],[40,"min"]]},
+    turrets: {bpm:134,lw:"square",  bw:"triangle",pat:"down",  prog:[[45,"min"],[45,"min"],[43,"maj"],[41,"maj"]]},
+  };
+  // saw is harsher/louder -> tame its peak; triangle is quiet -> lift it.
+  const LEAD_PEAK = { square: 0.11, sawtooth: 0.075, triangle: 0.13 };
+  const BASS_PEAK = { square: 0.16, sawtooth: 0.13, triangle: 0.20 };
+  const cache = {};
+  const trackFor = id => {
+    const sp = SPEC[id] || SPEC.gauntlet;
+    if (!cache[id]) { const b = build(sp.prog, sp.pat); cache[id] = { ...sp, lead: b.lead, bass: b.bass, stepDur: 60 / sp.bpm / 2 }; }
+    return cache[id];
+  };
+  let ctx = null, master = null, tmr = null, step = 0, nextT = 0, cur = null;
   let muted = localStorage.getItem("g2:muted") === "1";
 
   function tone(freq, t, dur, type, peak) {
@@ -276,17 +312,19 @@ const Music = (() => {
     s.connect(hp); hp.connect(g); g.connect(master); s.start(t);
   }
   function schedule() {
+    const T = cur;
     while (nextT < ctx.currentTime + 0.12) {
-      const s = step % LEAD.length;
-      tone(LEAD[s], nextT, stepDur * 0.9, "square", 0.11);
-      tone(BASS[s], nextT, stepDur * 0.95, "triangle", 0.20);
+      const s = step % T.lead.length;
+      tone(T.lead[s], nextT, T.stepDur * 0.9,  T.lw, LEAD_PEAK[T.lw]);
+      tone(T.bass[s], nextT, T.stepDur * 0.95, T.bw, BASS_PEAK[T.bw]);
       if (s % 2 === 1) hat(nextT);                         // off-beat groove
-      nextT += stepDur; step++;
+      nextT += T.stepDur; step++;
     }
   }
   return {
-    start() {
+    start(gameId) {
       if (muted) return;
+      cur = trackFor(gameId || "gauntlet");
       if (!ctx) {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
         master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
@@ -297,6 +335,7 @@ const Music = (() => {
       schedule(); tmr = setInterval(schedule, 40);
     },
     stop() { if (tmr) { clearInterval(tmr); tmr = null; } },
+    nowPlaying() { return cur && { bpm: cur.bpm, lw: cur.lw, bw: cur.bw, lead0: Math.round(cur.lead[0]) }; },
     muted() { return muted; },
     toggle() {
       muted = !muted;
@@ -1343,7 +1382,7 @@ function startRun() {
   courseReset(p, G.pickedBoost || "shield");
   show("game");
   G.running = true; G.lastTs = performance.now();
-  Music.start();
+  Music.start(Object.keys(GAMES).find(k => GAMES[k] === G.game) || "gauntlet");
   requestAnimationFrame(loop);
 }
 
@@ -1833,7 +1872,7 @@ document.getElementById("homeBtn").onclick = () => { renderHome(); show("home");
   const mb = document.getElementById("muteBtn");
   const paint = () => { mb.classList.toggle("off", Music.muted()); mb.innerHTML = Music.muted() ? "&#128263;" : "&#9835;"; };
   paint();
-  mb.onclick = () => { const wasMuted = Music.toggle(); paint(); if (!wasMuted && G.running) Music.start(); };
+  mb.onclick = () => { const wasMuted = Music.toggle(); paint(); if (!wasMuted && G.running) Music.start(Object.keys(GAMES).find(k => GAMES[k] === G.game) || "gauntlet"); };
 })();
 document.getElementById("shareBtn").onclick = share;
 document.getElementById("roomGo").onclick = () => {
