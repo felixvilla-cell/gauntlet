@@ -321,15 +321,24 @@ const Music = (() => {
       nextT += T.stepDur; step++;
     }
   }
+  // iOS Safari drops the user-activation the moment the tap handler awaits, so
+  // a resume() called AFTER `await ensurePin` no-ops -> the context stays
+  // suspended and the clock is frozen (why music played on run 1, where the
+  // context is created fresh, but went silent on every RUN AGAIN). unlock()
+  // must be called SYNCHRONOUSLY in the click handler, before any await.
+  function ensureCtx() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+  }
   return {
+    unlock() { if (!muted) ensureCtx(); },
     start(gameId) {
       if (muted) return;
       cur = trackFor(gameId || "gauntlet");
-      if (!ctx) {
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
-        master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
-      }
-      if (ctx.state === "suspended") ctx.resume();
+      ensureCtx();
       if (tmr) return;
       step = 0; nextT = ctx.currentTime + 0.05;
       schedule(); tmr = setInterval(schedule, 40);
@@ -1862,9 +1871,11 @@ function renderHome() {
     : `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
 }
 document.getElementById("runBtn").onclick = async () => {
+  Music.unlock();   // resume audio IN the gesture, before the await (iOS)
   if (await ensurePin(store.player)) startRun();
 };
 document.getElementById("againBtn").onclick = async () => {
+  Music.unlock();   // resume audio IN the gesture, before the await (iOS)
   if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player)) startRun();
 };
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
