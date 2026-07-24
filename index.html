@@ -326,12 +326,24 @@ const Music = (() => {
   // suspended and the clock is frozen (why music played on run 1, where the
   // context is created fresh, but went silent on every RUN AGAIN). unlock()
   // must be called SYNCHRONOUSLY in the click handler, before any await.
+  function arm() {                                         // (re)start the step scheduler
+    if (tmr || muted || !cur) return;
+    step = 0; nextT = ctx.currentTime + 0.05;
+    schedule(); tmr = setInterval(schedule, 40);
+  }
   function ensureCtx() {
     if (!ctx) {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+      // iOS parks the context in "interrupted"/"suspended" once audio stops or
+      // the app backgrounds; resume() fired mid-run then no-ops. Catch the
+      // transition BACK to "running" and re-arm so music returns on the next
+      // run instead of dying after run 1 (the bug Felix hit -- only run 1 had
+      // sound). Also below: resume from ANY non-running state, not just
+      // "suspended" (iOS uses "interrupted").
+      ctx.onstatechange = () => { if (ctx.state === "running" && G.running) arm(); };
     }
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx.state !== "running") ctx.resume();
   }
   return {
     unlock() { if (!muted) ensureCtx(); },
@@ -339,9 +351,9 @@ const Music = (() => {
       if (muted) return;
       cur = trackFor(gameId || "gauntlet");
       ensureCtx();
-      if (tmr) return;
-      step = 0; nextT = ctx.currentTime + 0.05;
-      schedule(); tmr = setInterval(schedule, 40);
+      // If the context is running, arm now. If iOS is still resuming it
+      // (state !== "running"), onstatechange arms as soon as it wakes.
+      if (ctx.state === "running") arm();
     },
     stop() { if (tmr) { clearInterval(tmr); tmr = null; } },
     nowPlaying() { return cur && { bpm: cur.bpm, lw: cur.lw, bw: cur.bw, lead0: Math.round(cur.lead[0]) }; },
