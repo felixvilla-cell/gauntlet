@@ -44,7 +44,7 @@
     position: absolute; inset: -1px; z-index: 20;
     display: flex; flex-direction: column; align-items: center;
     padding: max(10px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
-    overflow-y: auto; background: var(--bg);
+    overflow-y: auto; overflow-x: hidden; background: var(--bg);
   }
   .hidden { display: none !important; }
   /* home fits one screen (Felix, 2026-09-24): fitHome() shrinks this box
@@ -128,6 +128,122 @@
   }
   .newbest { color: var(--magenta); font-size: 13px; letter-spacing: 3px; margin-bottom: 2px;
     text-shadow: 0 0 10px rgba(255,46,166,.7); }
+
+  /* ===== STYLE PASS (Felix, 2026-09-24): centered, punchier, cooler retro ===== */
+  .screen {
+    background:
+      radial-gradient(ellipse 90% 45% at 50% -8%, rgba(255,46,166,.20), transparent 70%),
+      radial-gradient(ellipse 80% 35% at 50% 108%, rgba(25,227,255,.16), transparent 70%),
+      var(--bg);
+  }
+  /* synthwave floor grid, fading up into the dark */
+  #home::before {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 34%;
+    pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(255,46,166,.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(25,227,255,.28) 1px, transparent 1px);
+    background-size: 100% 26px, 34px 100%;
+    transform: perspective(260px) rotateX(58deg); transform-origin: 50% 100%;
+    -webkit-mask-image: linear-gradient(to top, #000 10%, transparent 95%);
+            mask-image: linear-gradient(to top, #000 10%, transparent 95%);
+    animation: gridrun 2.4s linear infinite;
+  }
+  @keyframes gridrun { from { background-position: 0 0, 0 0; } to { background-position: 0 26px, 0 0; } }
+  .fit { position: relative; z-index: 1; }
+
+  h1 { font-size: 33px; letter-spacing: 4px; margin: 2px 0 0; line-height: 1.05; }
+  h1 span { animation: flicker 7s infinite; }
+  @keyframes flicker {
+    0%, 91%, 93.5%, 96%, 100% { opacity: 1; }
+    92%, 95% { opacity: .45; text-shadow: none; }
+  }
+  .titlebar {
+    width: 72%; max-width: 280px; height: 2px; margin: 5px auto 7px; border-radius: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--magenta), transparent);
+    box-shadow: 0 0 10px rgba(255,46,166,.7);
+  }
+  .date { text-align: center; font-size: 10px; letter-spacing: 3px; margin-bottom: 3px; }
+  .gameline { text-align: center; margin: 0 0 6px; }
+  .gameline .gname {
+    display: block; font-size: 21px; font-weight: bold; letter-spacing: 4px; color: #fff;
+    text-shadow: 0 0 6px var(--cyan), 0 0 18px var(--cyan), 0 0 36px rgba(25,227,255,.5);
+  }
+  .gameline .how { display: block; font-size: 10px; letter-spacing: 1.5px; color: rgba(25,227,255,.8); margin-top: 2px; }
+  .twist { text-align: center; margin: 0 0 7px; }
+  .twist .pill {
+    display: inline-block; padding: 3px 12px; border: 1px solid var(--gold); border-radius: 999px;
+    font-size: 11px; font-weight: bold; letter-spacing: 3px; color: var(--gold);
+    background: rgba(255,201,60,.08);
+    box-shadow: 0 0 10px rgba(255,201,60,.35), inset 0 0 8px rgba(255,201,60,.15);
+  }
+  .twist .tdesc { display: block; font-size: 10px; letter-spacing: 1.5px; color: rgba(255,201,60,.8); margin-top: 3px; }
+
+  .panel {
+    position: relative; background: linear-gradient(180deg, rgba(23,20,48,.92), rgba(12,10,26,.92));
+    border: 1px solid rgba(25,227,255,.35);
+    box-shadow: 0 0 16px rgba(25,227,255,.12), inset 0 0 18px rgba(25,227,255,.06);
+    padding: 9px 12px 11px;
+  }
+  .panel::before {
+    content: ""; position: absolute; left: 14px; right: 14px; top: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--magenta), transparent);
+    box-shadow: 0 0 8px rgba(25,227,255,.8);
+  }
+  .panel h2 {
+    display: flex; align-items: center; gap: 8px; justify-content: center;
+    font-size: 10px; letter-spacing: 4px; color: #b9b5e8; margin-bottom: 9px;
+  }
+  .panel h2::before, .panel h2::after {
+    content: ""; flex: 1; height: 1px; max-width: 70px;
+    background: linear-gradient(90deg, transparent, rgba(185,181,232,.5));
+  }
+  .panel h2::after { background: linear-gradient(90deg, rgba(185,181,232,.5), transparent); }
+
+  .roster button, .boosts button {
+    background: linear-gradient(180deg, #1d1940, #141130);
+    border: 1px solid rgba(138,134,184,.4); font-weight: bold; letter-spacing: 1.5px;
+    transition: transform .08s, box-shadow .15s;
+  }
+  .roster button:active, .boosts button:active { transform: scale(.96); }
+  .roster button.sel, .boosts button.sel {
+    background: linear-gradient(180deg, rgba(255,201,60,.22), rgba(255,201,60,.05));
+    box-shadow: 0 0 14px rgba(255,201,60,.55), inset 0 0 10px rgba(255,201,60,.2);
+  }
+  .boosts button { padding: 8px 4px; }
+
+  .board .row { gap: 7px; padding: 2px 0; }
+  .board .rank { width: 16px; text-align: center; font-size: 11px; color: var(--dim); }
+  .board .row.lead .rank, .board .row.lead .name { color: var(--gold); text-shadow: 0 0 8px rgba(255,201,60,.7); }
+  .board .row.lead .pts { text-shadow: 0 0 10px rgba(255,201,60,.9); font-weight: bold; }
+  .board .name { width: 72px; }
+  .board .bar-wrap { height: 10px; background: #0d0b1f; border: 1px solid rgba(138,134,184,.18); }
+  .board .row.lead .bar { box-shadow: 0 0 10px rgba(255,46,166,.9), 0 0 4px rgba(25,227,255,.9); }
+  .board .wait { flex: 1; font-size: 11px; letter-spacing: 3px; color: rgba(138,134,184,.45); }
+  .board .row.empty .name { color: rgba(185,181,232,.55); }
+  .streakline, .weekline, .champline { text-align: center; }
+  .streakline { color: var(--magenta); text-shadow: 0 0 8px rgba(255,46,166,.6); }
+  .champline {
+    margin: 7px auto 0; padding: 3px 10px; width: fit-content; border-radius: 999px;
+    border: 1px solid rgba(255,201,60,.55); background: rgba(255,201,60,.07);
+  }
+
+  .bigbtn { letter-spacing: 7px; text-shadow: 0 1px 0 rgba(255,255,255,.35); position: relative; overflow: hidden; }
+  .bigbtn:not(:disabled) { animation: runpulse 1.6s ease-in-out infinite; }
+  .bigbtn:not(:disabled)::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 40%; left: -60%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.45), transparent);
+    animation: sheen 2.8s ease-in-out infinite;
+  }
+  @keyframes runpulse {
+    0%, 100% { box-shadow: 0 0 16px rgba(255,46,166,.5), 0 0 0 rgba(25,227,255,0); }
+    50% { box-shadow: 0 0 30px rgba(255,46,166,.85), 0 0 18px rgba(25,227,255,.5); }
+  }
+  @keyframes sheen { 0%, 55% { left: -60%; } 100% { left: 130%; } }
+  .runsleft { text-align: center; font-size: 11px; }
+  @media (prefers-reduced-motion: reduce) {
+    #home::before, h1 span, .bigbtn, .bigbtn::after { animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -160,6 +276,7 @@
   <!-- HOME -->
   <div id="home" class="screen"><div class="fit" id="homeFit">
     <h1>DAILY<span>GAUNTLET</span></h1>
+    <div class="titlebar"></div>
     <p class="date" id="homeDate"></p>
     <p class="gameline" id="homeGame"></p>
     <p class="twist" id="homeMod"></p>
@@ -1792,9 +1909,9 @@ function renderBoard(elId, scores) {
   const rows = ROSTER.map(r => ({ ...r, s: scores[r.id]?.score || 0, runs: scores[r.id]?.runs || 0 }))
     .sort((a, b) => b.s - a.s);
   const max = Math.max(...rows.map(r => r.s), 1);
-  el.innerHTML = rows.map(r => r.s
-    ? `<div class="row"><span class="name">${r.name}</span><span class="bar-wrap"><span class="bar" style="width:${Math.round(r.s/max*100)}%"></span></span><span class="pts">${r.s.toLocaleString()}</span></div>`
-    : `<div class="row empty"><span class="name">${r.name}</span><span style="flex:1">has not run yet</span></div>`
+  el.innerHTML = rows.map((r, i) => r.s
+    ? `<div class="row${i === 0 ? " lead" : ""}"><span class="rank">${i + 1}</span><span class="name">${r.name}</span><span class="bar-wrap"><span class="bar" style="width:${Math.round(r.s/max*100)}%"></span></span><span class="pts">${r.s.toLocaleString()}</span></div>`
+    : `<div class="row empty"><span class="rank">-</span><span class="name">${r.name}</span><span class="wait">not yet</span></div>`
   ).join("");
   fitHome();
 }
@@ -1872,10 +1989,11 @@ function renderHome() {
   const g = currentGame();
   document.getElementById("homeDate").textContent =
     PREVIEW ? `${dateLabel()} // PREVIEW MODE` : `${dateLabel()} // SAME COURSE FOR EVERYONE`;
-  document.getElementById("homeGame").textContent =
-    `${V2() ? "TODAY'S GAME" : "THIS WEEK'S GAME"}: ${g.name} -- ${g.howto}`;
+  document.getElementById("homeGame").innerHTML =
+    `<span class="gname">${g.name}</span><span class="how">${g.howto}</span>`;
   const m = modDisplay();
-  document.getElementById("homeMod").textContent = `TODAY'S TWIST: ${m.name} -- ${m.desc}`;
+  document.getElementById("homeMod").innerHTML =
+    `<span class="pill">TWIST // ${m.name}</span><span class="tdesc">${m.desc}</span>`;
   const rosterEl = document.getElementById("roster");
   rosterEl.innerHTML = ROSTER.map(r =>
     `<button data-id="${r.id}" class="${store.player === r.id ? "sel" : ""}">${r.name}</button>`).join("");
