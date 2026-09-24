@@ -392,9 +392,13 @@
   .r-go span:nth-child(1) { color: var(--cyan); text-shadow: 0 0 10px var(--cyan), 0 0 30px var(--cyan); }
   .r-go span:nth-child(2) { color: var(--gold); text-shadow: 0 0 10px var(--gold), 0 0 30px var(--gold); animation-delay: .45s; }
   .r-go span:nth-child(3) { color: var(--magenta); text-shadow: 0 0 10px var(--magenta), 0 0 34px var(--magenta); animation-delay: .9s; font-size: 1.5em; }
+  #reel.gated .reel-skip { visibility: hidden; }
+  .r-tap { margin-top: 26px; font-size: 15px; letter-spacing: 6px; color: #ffd23f; text-shadow: 0 0 12px #ffd23f; animation: tapPulse 1.3s ease-in-out infinite; }
+  @keyframes tapPulse { 0%,100% { opacity: .45; transform: scale(.97); } 50% { opacity: 1; transform: scale(1.03); } }
+  .r-crown.dimc { filter: grayscale(.2) brightness(.55); animation: tapPulse 1.3s ease-in-out infinite; }
   .r-load { font-size: 12px; letter-spacing: 5px; color: #b9b5e8; animation: flicker 2.4s infinite; }
   @media (prefers-reduced-motion: reduce) {
-    .reel-grid, .rc, .rc > *, .r-name.flick, .r-go span, .r-load { animation: none !important; }
+    .reel-grid, .rc, .rc > *, .r-name.flick, .r-go span, .r-load, .r-tap, .r-crown.dimc { animation: none !important; }
     .reel-prog i.on b { animation: none; width: 100%; }
   }
 </style>
@@ -558,6 +562,8 @@ const Music = (() => {
     mines:   {bpm:140,lw:"square",  bw:"triangle",pat:"sparse",prog:[[47,"min"],[43,"maj"],[42,"maj"],[47,"min"]]},
     pistons: {bpm:150,lw:"square",  bw:"square",  pat:"pedal", prog:[[40,"min"],[47,"min"],[45,"maj"],[40,"min"]]},
     turrets: {bpm:134,lw:"square",  bw:"triangle",pat:"down",  prog:[[45,"min"],[45,"min"],[43,"maj"],[41,"maj"]]},
+    // weekly champion reel: bright major victory loop (C-G-Am-F), not a game
+    champ:   {bpm:132,lw:"square",  bw:"triangle",pat:"climb", prog:[[48,"maj"],[43,"maj"],[45,"min"],[41,"maj"]]},
   };
   // saw is harsher/louder -> tame its peak; triangle is quiet -> lift it.
   const LEAD_PEAK = { square: 0.11, sawtooth: 0.075, triangle: 0.13 };
@@ -618,12 +624,64 @@ const Music = (() => {
       // run instead of dying after run 1 (the bug Felix hit -- only run 1 had
       // sound). Also below: resume from ANY non-running state, not just
       // "suspended" (iOS uses "interrupted").
-      ctx.onstatechange = () => { if (ctx.state === "running" && G.running) arm(); };
+      ctx.onstatechange = () => { if (ctx.state === "running" && (G.running || (typeof REEL !== "undefined" && REEL.on))) arm(); };
     }
     if (ctx.state !== "running") ctx.resume();
   }
+  // ---- one-shot sound effects (weekly champion reel) ----
+  function noise(t, dur, peak, type, f0, f1) {
+    const n = Math.ceil(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = b; f.type = type; f.frequency.setValueAtTime(f0, t);
+    if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(master); src.start(t); src.stop(t + dur + 0.02);
+  }
+  function sweep(t, f0, f1, dur, type, peak) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  const SFX = {
+    fanfare(t) {                                           // da-da-da-DAAA + crash
+      [72, 76, 79].forEach((n, i) => { tone(m(n), t + i * 0.11, 0.1, "square", 0.16); tone(m(n - 12), t + i * 0.11, 0.1, "triangle", 0.2); });
+      const h = t + 0.33;
+      [72, 76, 79, 84].forEach(n => tone(m(n), h, 1.1, "square", 0.08));
+      tone(m(48), h, 1.2, "triangle", 0.3); tone(m(36), h, 1.2, "triangle", 0.25);
+      noise(h, 1.2, 0.18, "highpass", 3000);
+    },
+    small(t) { [76, 79, 84].forEach((n, i) => tone(m(n), t + i * 0.09, i === 2 ? 0.5 : 0.09, "square", 0.13)); },
+    pop(t) {                                               // one firework
+      const k = 0.8 + Math.random() * 0.5;
+      sweep(t, 900 * k, 90, 0.18, "triangle", 0.2);
+      noise(t + 0.02, 0.45, 0.16, "bandpass", 2200 * k, 500);
+    },
+    whoosh(t) { noise(t, 0.35, 0.09, "bandpass", 500, 3500); },
+    tick(t, k) { tone(620 + 1100 * k, t, 0.035, "square", 0.05); },
+    ding(t) { tone(m(88), t, 0.7, "triangle", 0.2); tone(m(95), t, 0.5, "triangle", 0.1); tone(m(76), t, 0.35, "square", 0.05); },
+    drumroll(t) {
+      for (let i = 0; i < 14; i++) noise(t + i * 0.055, 0.06, 0.05 + i * 0.008, "bandpass", 1800);
+      const h = t + 0.8; [67, 72, 76].forEach(n => tone(m(n), h, 0.6, "square", 0.09)); tone(m(48), h, 0.7, "triangle", 0.28);
+      noise(h, 0.7, 0.12, "highpass", 3500);
+    },
+    go(t) {                                                // NEW WEEK. / 3 RUNS. / GO.
+      tone(m(72), t, 0.16, "square", 0.14);
+      tone(m(76), t + 0.45, 0.16, "square", 0.14);
+      [84, 88, 91].forEach(n => tone(m(n), t + 0.9, 0.9, "square", 0.09)); tone(m(60), t + 0.9, 1, "triangle", 0.3);
+      noise(t + 0.9, 0.9, 0.16, "highpass", 3000);
+    },
+  };
   return {
     unlock() { if (!muted) ensureCtx(); },
+    // fire a reel sound effect now (+delay seconds); silent until iOS has unlocked audio
+    sfx(name, delay = 0, arg) {
+      if (muted || !ctx || !SFX[name]) return;
+      if (ctx.state === "running") return SFX[name](ctx.currentTime + 0.01 + delay, arg);
+      // iOS still waking the context right after the unlocking tap: play it the moment it runs
+      if (name !== "tick") ctx.resume().then(() => { if (ctx.state === "running") SFX[name](ctx.currentTime + 0.01 + delay, arg); }).catch(() => {});
+    },
     start(gameId) {
       if (muted) return;
       cur = trackFor(gameId || "gauntlet");
@@ -2430,14 +2488,14 @@ function renderReelLine() {
   const html = c ? `LAST WEEK'S CHAMP: <b>${c.name}</b> // WATCH` : "";
   if (el.innerHTML !== html) { el.innerHTML = html; fitHome(); }
 }
-document.getElementById("reelline").onclick = () => { if (REELDATA?.champ) playReel(REELDATA.champ); };
+document.getElementById("reelline").onclick = () => { if (REELDATA?.champ) { Music.unlock(); playReel(REELDATA.champ); } };
 
 const WD = d => d.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
 const MD = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
 const CROWN = `<svg class="r-crown" viewBox="0 0 96 64" aria-hidden="true"><path d="M6 20 L26 40 L48 6 L70 40 L90 20 L82 58 L14 58 Z" fill="#ffd23f" stroke="#fff3b0" stroke-width="2" stroke-linejoin="round"/><rect x="14" y="50" width="68" height="8" fill="#ffb300"/><circle cx="48" cy="6" r="5" fill="#ff2d95"/><circle cx="6" cy="20" r="4" fill="#22e5ff"/><circle cx="90" cy="20" r="4" fill="#22e5ff"/><circle cx="34" cy="50" r="3" fill="#ff2d95"/><circle cx="48" cy="50" r="3" fill="#22e5ff"/><circle cx="62" cy="50" r="3" fill="#ff2d95"/></svg>`;
 function reelCards(c) {
   const cards = [];
-  cards.push({ dur: 3800, fx: "fireworks", html:
+  cards.push({ dur: 3800, fx: "fireworks", snd: "fanfare", html:
     `<div class="rc"><div class="r-kick">LAST WEEK'S CHAMPION</div>
      <div class="r-week">${MD(c.weekFrom)} - ${MD(c.weekTo)}</div>${CROWN}
      <div class="r-name flick">${c.name}</div>
@@ -2448,7 +2506,7 @@ function reelCards(c) {
     const beat = h.second
       ? `BEAT <b>${pname(h.second.pid)}</b> BY ${fmt(h.score - h.second.score)}`
       : `ONLY ONE WHO RAN THAT DAY`;
-    cards.push({ dur, footage: { ds: h.ds, date: h.date, gameId: dc.gameId }, html:
+    cards.push({ dur, snd: "whoosh", footage: { ds: h.ds, date: h.date, gameId: dc.gameId }, html:
       `<div class="rc"><div class="r-kick">HIGHLIGHT ${i + 1} OF ${hl.length}</div>
        <div class="r-day">${WD(h.date)}</div>
        <div class="r-game">${dc.game}</div>
@@ -2456,14 +2514,14 @@ function reelCards(c) {
        <div class="r-score" data-count="${h.score}">${fmt(h.score)}</div>
        <div class="r-beat">${beat}</div></div>` });
   });
-  if (!hl.length) cards.push({ dur: 3200, fx: "coins", html:
+  if (!hl.length) cards.push({ dur: 3200, fx: "coins", snd: "small", html:
     `<div class="rc"><div class="r-kick">THE HIGHLIGHT</div>
      <div class="r-big mag" style="margin-top:14px">NEVER WON<br>A DAY</div>
      <div class="r-big gold" style="margin-top:10px">WON THE WEEK</div>
      <div class="r-sub cyan">${fmt(c.total)} PTS ON CONSISTENCY</div></div>` });
   if (c.bestRun) {
     const dc = dayCard(c.bestRun.date);
-    cards.push({ dur: 3100, fx: "coins", html:
+    cards.push({ dur: 3100, fx: "coins", snd: "whoosh", html:
       `<div class="rc"><div class="r-kick">BEST RUN OF THE WEEK</div>
        <div class="r-score" style="font-size:min(19vw,80px)" data-count="${c.bestRun.score}">${fmt(c.bestRun.score)}</div>
        <div class="r-game">${dc.game}</div>
@@ -2476,21 +2534,24 @@ function reelCards(c) {
   if (c.runner) margin = c.runner.wins < c.wins
     ? `WON BY ${c.wins - c.runner.wins} DAILY WIN${c.wins - c.runner.wins === 1 ? "" : "S"}`
     : `TIED ON WINS // WON BY ${fmt(c.total - c.runner.total)} PTS`;
-  cards.push({ dur: 3800, html:
+  cards.push({ dur: 3800, snd: "drumroll", html:
     `<div class="rc"><div class="r-kick">FINAL STANDINGS</div><div class="r-stand">${rows}</div>
      <div class="r-line">${margin}</div>
      <div class="r-line" style="margin-top:6px;color:var(--dim)">W = DAILY WINS // PTS = DAILY BESTS</div></div>` });
-  if (c.reign >= 2) cards.push({ dur: 2800, fx: "fireworks", html:
+  if (c.reign >= 2) cards.push({ dur: 2800, fx: "fireworks", snd: "fanfare", html:
     `<div class="rc">${CROWN.replace('class="r-crown"', 'class="r-crown sm"')}<div class="r-name" style="font-size:min(12vw,50px)">${c.name}</div>
      <div class="r-big gold" style="margin-top:14px">${c.reign}${c.reignCapped ? "+" : ""} WEEKS<br>IN A ROW</div></div>` });
-  cards.push({ dur: 2900, fx: "fireworks", html:
+  cards.push({ dur: 2900, fx: "fireworks", snd: "go", html:
     `<div class="rc"><div class="r-go"><span>NEW WEEK.</span><span>3 RUNS.</span><span>GO.</span></div></div>` });
   return cards;
 }
 
 const RM = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const REEL = { on: false, i: 0, cards: [], tmr: null, t0: 0 };
-function playReel(c, onDone) {
+// gate=true (the reel auto-opened, no tap yet): hold on a TAP TO REVEAL card,
+// because iOS won't play any sound until the player touches the screen. The
+// reveal tap unlocks audio synchronously, then the fanfare + reel start.
+function playReel(c, onDone, gate = false) {
   if (!c || REEL.on) return;
   const el = document.getElementById("reel");
   REEL.on = true; REEL.i = -1; REEL.cards = reelCards(c); REEL.t0 = performance.now(); REEL.done = onDone;
@@ -2498,6 +2559,18 @@ function playReel(c, onDone) {
   document.getElementById("reelProg").innerHTML = REEL.cards.map(() => "<i><b></b></i>").join("");
   show("reel");
   fxStart();
+  if (gate) {
+    REEL.gate = true; FX.mode = ""; attractStop(); el.classList.remove("footage"); el.classList.add("gated");
+    document.getElementById("reelStage").innerHTML =
+      `<div class="rc"><div class="r-kick">LAST WEEK'S CHAMPION IS...</div>${CROWN.replace('class="r-crown"', 'class="r-crown dimc"')}
+       <div class="r-tap">TAP TO REVEAL</div></div>`;
+    return;
+  }
+  reelGo();
+}
+function reelGo() {
+  REEL.gate = false; REEL.t0 = performance.now(); document.getElementById("reel").classList.remove("gated");
+  Music.start("champ");
   reelNext();
 }
 function reelNext() {
@@ -2510,6 +2583,7 @@ function reelNext() {
     if (k === REEL.i) b.style.setProperty("--dur", card.dur + "ms");
   });
   document.getElementById("reelStage").innerHTML = card.html;
+  if (card.snd) Music.sfx(card.snd);
   FX.mode = card.fx || "";
   if (card.fx === "fireworks") FX.burstNow = 3;
   if (card.footage) { attractStart(card.footage); el.classList.add("footage"); }
@@ -2520,19 +2594,22 @@ function reelNext() {
 function countUp(n) {
   const to = +n.dataset.count;
   if (RM() || !to) { n.textContent = fmt(to); return; }
-  const t0 = performance.now(), D = 1100;
+  const t0 = performance.now(), D = 1100; let lastTick = 0;
   const tick = now => {
     if (!n.isConnected) return;
     const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
     n.textContent = fmt(Math.round(to * e));
+    if (REEL.on && now - lastTick > 70 && k < 1) { lastTick = now; Music.sfx("tick", 0, e); }
     if (k < 1) requestAnimationFrame(tick);
+    else if (REEL.on) Music.sfx("ding");
   };
   n.textContent = "0"; requestAnimationFrame(tick);
 }
 function endReel() {
   if (!REEL.on) return;
   clearTimeout(REEL.tmr);
-  REEL.on = false;
+  REEL.on = false; REEL.gate = false; document.getElementById("reel").classList.remove("gated");
+  Music.stop();
   attractStop(); fxStop();
   document.getElementById("reel").classList.remove("footage");
   if (!PREVIEW && REELDATA?.champ) safeSet(reelSeenKey(), "1");
@@ -2541,6 +2618,7 @@ function endReel() {
 }
 // tap anywhere skips (ignore the first moments so the opening tap can't)
 document.getElementById("reel").addEventListener("click", () => {
+  if (REEL.on && REEL.gate) { Music.unlock(); reelGo(); return; }   // unlock MUST stay synchronous
   if (REEL.on && performance.now() - REEL.t0 > 450) endReel();
 });
 
@@ -2557,6 +2635,8 @@ function fxStart() {
 }
 function fxStop() { cancelAnimationFrame(FX.raf); FX.raf = 0; FX.parts = []; if (FX.cx) FX.cx.clearRect(0, 0, FX.w, FX.h); }
 function fxBurst() {
+  // a pop for roughly every other burst -- every burst stacked into noise over the fanfare
+  if (REEL.on && !REEL.gate && performance.now() - (FX.lastPop || 0) > 650) { FX.lastPop = performance.now(); Music.sfx("pop"); }
   const pal = ["#22e5ff", "#ff2d95", "#ffd23f", getComputedStyle(document.getElementById("reel")).getPropertyValue("--acc").trim() || "#fff"];
   const x = FX.w * (0.15 + Math.random() * 0.7), y = FX.h * (0.12 + Math.random() * 0.35);
   const col = pal[Math.floor(Math.random() * pal.length)], n = 64;
@@ -2668,9 +2748,9 @@ async function reelBoot() {
   // if the player is just sitting on the home screen (not mid-run, not already watching)
   if (data === undefined) lp.then(d => {
     const home = !document.getElementById("home").classList.contains("hidden");
-    if (d && d.champ && reelUnseen() && !REEL.on && !G.running && home) playReel(d.champ);
+    if (d && d.champ && reelUnseen() && !REEL.on && !G.running && home) playReel(d.champ, null, true);
   });
-  if (data && data.champ && !REEL.on && !G.running) { playReel(data.champ); return; }
+  if (data && data.champ && !REEL.on && !G.running) { playReel(data.champ, null, true); return; }
   if (data && !data.champ) safeSet("g2:reelNone:" + data.monday, "1");   // nobody played last week
   if (!REEL.on && !el.classList.contains("hidden")) { show("home"); renderHome(); }
 }
