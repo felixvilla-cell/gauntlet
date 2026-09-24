@@ -37,11 +37,11 @@
   canvas { display: block; background: var(--bg); }
   /* CRT scanlines over everything */
   #stage::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 40;
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 40;
     background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
   }
   .screen {
-    position: absolute; inset: -1px; z-index: 20;
+    position: fixed; inset: -1px; z-index: 20;
     display: flex; flex-direction: column; align-items: center;
     padding: max(10px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
     overflow-y: auto; overflow-x: hidden; background: var(--bg);
@@ -241,6 +241,30 @@
   }
   @keyframes sheen { 0%, 55% { left: -60%; } 100% { left: 130%; } }
   .runsleft { text-align: center; font-size: 11px; }
+  /* menus fill the whole screen (home-screen app has ~870pt of height, the
+     play area is only ~700) -- center the stack and breathe when it's tall */
+  .fit { margin: auto 0; }
+  @media (min-height: 780px) {
+    h1 { font-size: 36px; }
+    .titlebar { margin: 6px auto 8px; }
+    .date { margin-bottom: 6px; }
+    .gameline { margin-bottom: 8px; }
+    .gameline .gname { font-size: 25px; }
+    .gameline .how { font-size: 11px; margin-top: 4px; }
+    .twist { margin-bottom: 12px; }
+    .twist .pill { font-size: 12px; padding: 4px 14px; }
+    .twist .tdesc { font-size: 11px; margin-top: 5px; }
+    .panel { padding: 11px 14px 13px; margin-bottom: 10px; }
+    .panel h2 { margin-bottom: 12px; }
+    .roster button { padding: 11px 6px; font-size: 15px; }
+    .boosts button { padding: 11px 4px; font-size: 15px; }
+    .boosts small { font-size: 10px; }
+    .board { font-size: 15px; }
+    .board .row { padding: 3px 0; }
+    .champline { margin-top: 10px; }
+    .bigbtn { padding: 15px; margin-top: 6px; font-size: 22px; }
+    .runsleft { margin-top: 10px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     #home::before, h1 span, .bigbtn, .bigbtn::after { animation: none !important; }
   }
