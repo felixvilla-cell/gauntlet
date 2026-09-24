@@ -20,13 +20,11 @@
 <body>
   <h1><span class="c">FANFARE</span> <span class="m">PICK</span></h1>
   <div class="sub">TAP EACH ONE. PICK YOUR FAVORITE.</div>
-  <button data-f="A" class="gold"><b>A // CHAMPION</b><span>snare roll, triple pickup, big climb to the top note</span></button>
-  <button data-f="B"><b>B // ROYAL</b><span>timpani roll, trumpets in harmony, crowning chord</span></button>
-  <button data-f="C"><b>C // LEVEL CLEAR</b><span>whoosh up, lightning arpeggio, sparkling chord</span></button>
   <button data-f="D" class="gold"><b>D // ANTHEM (BIG)</b><span>6 sec: drum roll build, heroic melody, huge finish</span></button>
   <button data-f="E" class="gold"><b>E // ARENA (BIG)</b><span>6 sec: stadium drums, rising synth, massive final hit</span></button>
+  <button data-f="F" class="gold" style="border-color:#ff2d95;box-shadow:0 0 22px rgba(255,45,149,.45)"><b>F // LEGEND (BIGGEST)</b><span>8.5 sec: full build, name slams in, heroic theme, giant finish, rolls straight into the tune</span></button>
   <button data-f="OLD" class="dim"><b>CURRENT ONE</b><span>what the reel plays right now, for comparison</span></button>
-  <div class="note">Phone off silent. Each plays the reveal moment only, then the reel's victory tune fades in the way it will in the game.</div>
+  <div class="note">Phone off silent. Each plays the reveal, then rolls straight into the reel's victory tune (now with drums, no gap).</div>
 <script>
 let ctx = null, master = null;
 const m = n => 440 * Math.pow(2, (n - 69) / 12);
@@ -37,12 +35,18 @@ function pulse(duty) {                      // chip-style pulse wave (25% / 12.5
   for (let n = 1; n < N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * duty);
   return (waves[duty] = ctx.createPeriodicWave(re, im));
 }
+// glue compressor -> brick-wall-ish limiter -> out
+function chain(c) {
+  const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+  const lim = c.createDynamicsCompressor(); lim.threshold.value = -4; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.12;
+  const trim = c.createGain(); trim.gain.value = 0.9;
+  comp.connect(lim); lim.connect(trim); trim.connect(c.destination); return comp;
+}
 function unlock() {
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     master = ctx.createGain(); master.gain.value = 0.5;
-    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
-    master.connect(comp); comp.connect(ctx.destination);
+    master.connect(chain(ctx)); 
   }
   if (ctx.state !== "running") ctx.resume();
 }
@@ -93,6 +97,18 @@ function kick(t, p = 0.7) {              // sine thump with a fast pitch drop
   o.type = "sine"; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
   g.gain.setValueAtTime(p, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.4);
+}
+// held background chord: three detuned saws through a lowpass that opens up; it never leaves a hole
+function pad(t, notes, dur, peak = 0.028, f0 = 900, f1 = 2600) {
+  const lp = ctx.createBiquadFilter(), g = ctx.createGain();
+  lp.type = "lowpass"; lp.frequency.setValueAtTime(f0, t); lp.frequency.linearRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + Math.min(0.12, dur / 3));
+  g.gain.setValueAtTime(peak, t + dur); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.12);
+  lp.connect(g); g.connect(master);
+  for (const n of notes) for (const det of [-9, 0, 9]) {
+    const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = m(n); o.detune.value = det;
+    o.connect(lp); o.start(t); o.stop(t + dur + 0.15);
+  }
 }
 const chord = (t, notes, dur, peak = 0.07) => notes.forEach((n, i) => horn(t, n, dur, i ? peak * 0.7 : peak * 1.4, i ? 0.125 : 0.25));
 const crash = (t, p = 0.2, d = 1.6) => noise(t, d, p, "highpass", 4500);
@@ -152,8 +168,8 @@ const FAN = {
     tri(r, 43, 0.4, 0.3);
     const c = r + 0.45;                                     // Ab -> Bb climb
     chord(c, [68, 63, 60], 0.24); tri(c, 44, 0.25, 0.32); timp(c, 32, 0.45); kick(c, 0.5);
-    chord(c + 0.3, [70, 65, 62], 0.24); tri(c + 0.3, 46, 0.25, 0.32); timp(c + 0.3, 34, 0.45); kick(c + 0.3, 0.5);
-    roll(c + 0.3, 0.3, 0.06, 0.16);
+    chord(c + 0.3, [70, 65, 62], 0.34); tri(c + 0.3, 46, 0.25, 0.32); timp(c + 0.3, 34, 0.45); kick(c + 0.3, 0.5);
+    roll(c + 0.3, 0.34, 0.06, 0.2, snare, 0.03);
     const top = c + 0.62;                                   // THE hit
     chord(top, [84, 79, 76, 72], 2.0, 0.08); tri(top, 48, 2.0, 0.32); tri(top, 36, 2.0, 0.24);
     timp(top, 36, 0.6); kick(top, 0.8); crash(top, 0.24, 2.2); crash(top + 0.02, 0.12, 2.4);
@@ -161,7 +177,9 @@ const FAN = {
     roll(top + 1.2, 0.8, 0.08, 0.3, (t2, p) => timp(t2, 36, p), 0.06);
     const end = top + 2.05;                                 // button
     chord(end, [84, 79, 76, 72], 0.28, 0.09); tri(end, 36, 0.3, 0.35); timp(end, 36, 0.6); kick(end, 0.8); crash(end, 0.2, 1.4);
-    return 6.2;
+    const pd = [[0, 1.0, [55, 59, 62]], [1.0, 1.73, [48, 52, 55, 60]], [2.73, 0.45, [55, 59, 62]], [3.18, 0.3, [56, 60, 63]], [3.48, 0.32, [58, 62, 65]], [3.8, 2.6, [48, 52, 55, 60]]];
+    pd.forEach(([d, len, n]) => pad(t + d, n, len + 0.02, 0.03));
+    return 5.85 + 0.43;
   },
   // E: ~6s. stadium beat (kick / snare) building for two bars under a rising synth,
   // double-time snare into a massive chord, echo hits, final slam
@@ -179,11 +197,66 @@ const FAN = {
     chord(hit, [84, 79, 76, 72], 1.1, 0.09); tri(hit, 48, 1.1, 0.34); tri(hit, 36, 1.1, 0.26);
     kick(hit, 0.9); timp(hit, 36, 0.6); crash(hit, 0.26, 1.8);
     [0.55, 0.8].forEach((d, i) => { chord(hit + 1.1 + d, [79 + i * 2, 76, 72], 0.18, 0.07); kick(hit + 1.1 + d, 0.6); snare(hit + 1.1 + d, 0.14); });
+    for (let i = 1; i < 5; i++) { kick(hit + i * b, 0.5); if (i % 2) snare(hit + i * b, 0.12); tri(hit + i * b, 36, b * 0.9, 0.2); }   // beat never stops
+    pad(t, [48, 52, 55], 4 * b, 0.024); pad(t + 4 * b, [53, 57, 60], 4 * b, 0.03); pad(hit, [48, 52, 55, 60, 64], 2.3 + 2 * b + 0.1, 0.034);
+    roll(hit + 1.9, 0.4, 0.08, 0.22, snare, 0.033);
     const slam = hit + 2.3;
     chord(slam, [84, 79, 76, 72, 67], 1.3, 0.09); tri(slam, 36, 1.3, 0.34); tri(slam, 24, 1.3, 0.22);
     kick(slam, 1.0); timp(slam, 36, 0.6); crash(slam, 0.26, 2.0);
     for (let i = 0; i < 16; i++) { const n = [100, 103, 108, 112][i % 4]; tri(slam + 0.1 + i * 0.07, n, 0.05, 0.05 * (1 - i / 18)); }
-    return 6.4;
+    return (slam - t) + 2 * b;
+  },
+  // F: ~8.6s at 140 bpm, all on one beat grid so nothing ever drops out.
+  // bar 0 build (G) -> bar 1 HIT, name reveal, theme -> bar 2 theme peak (F, G) ->
+  // bar 3 Ab / Bb climb with fills -> bar 4 giant C held with sparkles ->
+  // bar 5 tom run -> bar 6 downbeat = the victory tune starts right on it
+  F(t) {
+    const b = 60 / 140, bar = 4 * b, at = (br, bt = 0) => t + br * bar + bt * b;
+    // continuous background chords, one per span, butted end to end
+    [[0, 0, 4, [43, 55, 59, 62]], [1, 0, 4, [48, 55, 60, 64]], [2, 0, 2, [41, 53, 57, 60]], [2, 2, 2, [43, 55, 59, 62]],
+     [3, 0, 2, [44, 56, 60, 63]], [3, 2, 2, [46, 58, 62, 65]], [4, 0, 4.2, [36, 48, 55, 60, 64, 67]]]
+      .forEach(([br, bt, beats, n]) => pad(at(br, bt), n, beats * b + 0.02, br === 4 ? 0.036 : 0.03, br === 0 ? 500 : 1200, 3200));
+    // bar 0: build
+    roll(at(0), bar, 0.05, 0.45, (t2, p) => timp(t2, 31, p), 0.06);
+    noise(at(0), bar, 0.13, "bandpass", 300, 6000, bar - 0.05);
+    horn(at(0), 43, bar, 0.07, 0.5); tri(at(0), 31, bar, 0.2);
+    for (let i = 0; i < 4; i++) kick(at(0, i), 0.45 + i * 0.1);
+    roll(at(0, 1), 2 * b, 0.04, 0.12, snare, b / 2); roll(at(0, 3), b, 0.1, 0.2, snare, b / 4);
+    [55, 59, 62, 67, 71, 74, 79, 83, 86, 91, 95, 98, 91, 95, 98, 103].forEach((n, i) => horn(at(0, i / 4), n - 12, b / 4 * 0.9, 0.05 + i * 0.004));
+    // bar 1: HIT (name reveal) then the theme
+    const H = at(1);
+    chord(H, [84, 79, 76, 72, 60], 2 * b, 0.09); tri(H, 36, 2 * b, 0.36); tri(H, 24, 2 * b, 0.24);
+    kick(H, 1.0); timp(H, 36, 0.65); crash(H, 0.26, 2.2); crash(H + 0.02, 0.14, 2.4);
+    const theme = [[2, 67, .5], [2.5, 72, .75], [3.25, 74, .25], [3.5, 76, .5], [4, 79, 2], [6, 81, .5], [6.5, 79, .5], [7, 77, .5], [7.5, 74, .5]];
+    const third = { 67: 64, 72: 67, 74: 71, 76: 72, 79: 76, 81: 77, 77: 74 };
+    theme.forEach(([bt, n, len]) => { const s2 = H + bt * b, d = len * b;
+      horn(s2, n, d, 0.14); horn(s2, n - 12, d, 0.08); horn(s2, third[n] || n - 3, d, 0.08, 0.125); });
+    // stadium beat under bars 1-2
+    for (let i = 0; i < 8; i++) { const s2 = H + i * b;
+      if (i % 2 === 0) kick(s2, 0.7); else snare(s2, 0.16);
+      noise(s2 + b / 2, 0.05, 0.05, "highpass", 7000); if (i === 7) roll(s2, b, 0.08, 0.2, snare, b / 4); }
+    [[0, 36], [1, 36], [2, 36], [3, 36], [4, 41], [5, 41], [6, 43], [7, 43]].forEach(([i, n]) => { tri(H + i * b, n, b * 0.45, 0.28); tri(H + (i + .5) * b, n + 12, b * 0.4, 0.2); });
+    crash(at(2), 0.16, 1.2);
+    // bar 3: Ab / Bb climb with fills
+    [[0, [80, 75, 72, 68, 56], 44], [2, [82, 77, 74, 70, 58], 46]].forEach(([bt, n, bass]) => {
+      const s2 = at(3, bt); chord(s2, n, 2 * b - 0.02, 0.085); tri(s2, bass, 2 * b, 0.34); tri(s2, bass - 12, 2 * b, 0.22);
+      kick(s2, 0.8); timp(s2, bass - 12, 0.55); crash(s2, 0.14, 0.9);
+      kick(s2 + b, 0.55); timp(s2 + b, bass - 12, 0.4); });
+    roll(at(3, 2), 2 * b, 0.06, 0.24, snare, b / 4);
+    [72, 74, 75, 77, 79, 80, 82, 84].forEach((n, i) => horn(at(3, i / 2), n, b / 2 * 0.9, 0.09));
+    // bar 4: the giant chord
+    const T = at(4);
+    chord(T, [96, 91, 88, 84, 79, 76, 72], 4 * b + 0.1, 0.085); horn(T, 60, 4 * b, 0.1, 0.5);
+    tri(T, 36, 4 * b, 0.38); tri(T, 24, 4 * b, 0.26);
+    kick(T, 1.0); timp(T, 36, 0.7); crash(T, 0.28, 2.6); crash(T + 0.02, 0.16, 2.8);
+    for (let i = 0; i < 26; i++) { const n = [96, 100, 103, 108][i % 4]; tri(T + 0.08 + i * 0.06, n, 0.05, 0.055 * (1 - i / 28)); }
+    // second half of the bar: tom run + snare roll into the downbeat
+    [48, 45, 43, 41, 40, 38, 36, 31].forEach((n, i) => { timp(at(4, 2 + i / 4), n - 12, 0.5); if (i % 2 === 0) kick(at(4, 2 + i / 4), 0.6); });
+    roll(at(4, 2), 2 * b, 0.08, 0.28, snare, b / 4);
+    // bar 5 downbeat: button hit; the tune starts exactly here
+    const E6 = at(5);
+    chord(E6, [84, 79, 76, 72, 60], 0.6, 0.1); tri(E6, 36, 0.6, 0.38); kick(E6, 1.0); timp(E6, 36, 0.7); crash(E6, 0.26, 2.2);
+    return 5 * bar;
   },
   // what the reel plays now
   OLD(t) {
@@ -197,18 +270,22 @@ const FAN = {
   },
 };
 // the reel's victory bed (C-G-Am-F climb, 132 bpm) at 55%, entering after the fanfare
-function bed(t, bars = 2) {
-  const step = 60 / 132 / 2, prog = [[48, [0, 4, 7, 12]], [43, [0, 4, 7, 12]], [45, [0, 3, 7, 12]], [41, [0, 4, 7, 12]]];
-  let k = 0;
-  for (let b = 0; b < bars * 4 / 4 * 4; b++) {
-    const [root, iv] = prog[b % 4];
-    for (let i = 0; i < 8; i++, k++) {
-      const s = t + k * step, fade = Math.min(1, k / 8);
-      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "square"; o.frequency.value = m(root + 24 + iv[i % 4]);
-      g.gain.setValueAtTime(0.0001, s); g.gain.linearRampToValueAtTime(0.11 * 0.55 * fade, s + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, s + step * 0.9);
-      o.connect(g); g.connect(master); o.start(s); o.stop(s + step);
-      tri(s, i === 2 || i === 6 ? root : root - 12, step * 0.9, 0.2 * 0.55 * fade);
+function bed(t, bars = 8) {
+  // the reel's victory tune (C-G-Am-F climb) -- now 140 bpm with a drum kit, and it starts at
+  // full level on the downbeat: no fade-in, no hole after the fanfare
+  const step = 60 / 140 / 2, prog = [[48, [0, 4, 7, 12]], [43, [0, 4, 7, 12]], [45, [0, 3, 7, 12]], [41, [0, 4, 7, 12]]];
+  const climb = [0, 1, 2, 3, 0, 1, 2, 3];
+  for (let br = 0; br < bars; br++) {
+    const [root, iv] = prog[br % 4];
+    for (let i = 0; i < 8; i++) {
+      const s2 = t + (br * 8 + i) * step;
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "square"; o.frequency.value = m(root + 24 + iv[climb[i]]);
+      g.gain.setValueAtTime(0.0001, s2); g.gain.linearRampToValueAtTime(0.075, s2 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, s2 + step * 0.9);
+      o.connect(g); g.connect(master); o.start(s2); o.stop(s2 + step);
+      tri(s2, i === 2 || i === 6 ? root : root - 12, step * 0.9, 0.16);
+      if (i % 4 === 0) kick(s2, 0.42); if (i % 4 === 2) snare(s2, 0.09); if (i % 2 === 1) noise(s2, 0.04, 0.035, "highpass", 7000);
     }
+    pad(t + br * 8 * step, [root, root + iv[1], root + 7].map(n => n + 12), 8 * step, 0.014);
   }
 }
 let playing = 0;
@@ -219,7 +296,7 @@ document.querySelectorAll("button").forEach(btn => btn.addEventListener("click",
   const id = ++playing;
   document.querySelectorAll("button").forEach(b => b.classList.remove("on")); btn.classList.add("on");
   const t = ctx.currentTime + 0.05, len = FAN[btn.dataset.f](t);
-  bed(t + len - 0.2, 1);
+  bed(t + len, 4);                            // lands exactly on the fanfare's last downbeat
   setTimeout(() => { if (id === playing) btn.classList.remove("on"); }, (len + 3) * 1000);
 }));
 </script>
