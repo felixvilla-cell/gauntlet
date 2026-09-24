@@ -1912,8 +1912,8 @@ async function pullMine(timeoutMs = 3000) {
     clearTimeout(tm);
     if (r.ok) {
       const f = (await r.json()).fields?.scores?.mapValue?.fields?.[store.player]?.mapValue?.fields || {};
-      SRV[`${today()}:${store.player}`] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10), bonus: parseInt(f.bonus?.integerValue || "0", 10) };
-    } else if (r.status === 404) SRV[`${today()}:${store.player}`] = { score: 0, runs: 0, bonus: 0 };
+      SRV[`${today()}:${store.player}`] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10), bonus: parseInt(f.bonus?.integerValue || "0", 10), reel: parseInt(f.reel?.integerValue || "0", 10) };
+    } else if (r.status === 404) SRV[`${today()}:${store.player}`] = { score: 0, runs: 0, bonus: 0, reel: 0 };
   } catch {}
   return srvMine();
 }
@@ -1926,20 +1926,19 @@ async function syncScore(best, runs) {
   const srv = await pullMine();
   best = Math.max(best, srv.score); runs = Math.max(runs, srv.runs);
   const url = `${fsBase()}/rooms/${encodeURIComponent(store.room)}/days/${today()}` +
-    `?updateMask.fieldPaths=scores.${store.player}&key=${CFG.firebase.apiKey}`;
+    ["score", "runs", "boost", "ts"].map(k => `updateMask.fieldPaths=scores.${store.player}.${k}`).join("&").replace(/^/, "?") + `&key=${CFG.firebase.apiKey}`;
   const body = { fields: { scores: { mapValue: { fields: {
     [store.player]: { mapValue: { fields: {
       score: { integerValue: String(best) },
       runs:  { integerValue: String(runs) },
       boost: { stringValue: G.boost || "" },
       ts:    { integerValue: String(Date.now()) },
-      bonus: { integerValue: String(srv.bonus || 0) },
     }}}
   }}}}};
   try {
     const r = await fetch(url, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(await r.text());
-    SRV[`${today()}:${store.player}`] = { score: best, runs, bonus: srv.bonus || 0 };
+    SRV[`${today()}:${store.player}`] = { score: best, runs, bonus: srv.bonus || 0, reel: srv.reel || 0 };
   } catch (e) { toast("offline -- score saved on this phone, will sync next run"); }
 }
 
@@ -1969,7 +1968,7 @@ async function fetchDayList(list, strict = false) {
       out[day] = {};
       for (const [pid, v] of Object.entries(scores)) {
         const f = v.mapValue?.fields || {};
-        out[day][pid] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10), bonus: parseInt(f.bonus?.integerValue || "0", 10) };
+        out[day][pid] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10), bonus: parseInt(f.bonus?.integerValue || "0", 10), reel: parseInt(f.reel?.integerValue || "0", 10) };
       }
     }
     return out;
@@ -2051,7 +2050,7 @@ let healedThisLoad = false;
 async function refreshBoards() {
   const days = await fetchDays(14);
   const t = days[today()] || {};
-  for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0, bonus: v.bonus || 0 };
+  for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0, bonus: v.bonus || 0, reel: v.reel || 0 };
   updateBadge();
   if (store.player) { renderHome(); }   // runs-left may change once the board is known
   // fold in local best in case sync failed
@@ -2361,7 +2360,7 @@ const REEL_WEEKS = 8;                        // lookback for the reign streak
 const pname = pid => ROSTER.find(r => r.id === pid)?.name || pid.toUpperCase();
 const fmt = n => Number(n || 0).toLocaleString("en-US");
 const addDays = (d, k) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + k); return x; };
-const reelSeenKey = () => "g2:reelSeen:" + dstr(mondayOf(new Date()));
+const reelSeenKey = () => "g2:reelSeen:" + dstr(mondayOf(new Date())) + (srvMine().reel ? ":r" + srvMine().reel : "");
 let REELDATA = null;
 let REEL_PENDING = false;                    // hold the badge until we know if a reel is unseen                         // { monday: current-week YYYYMMDD, champ: {...} | null }
 function reelUnseen() {
@@ -2650,6 +2649,7 @@ function attractStop() {
 // First open of the week: the reel plays BEFORE the home screen.
 async function reelBoot() {
   if (!store.room) return;
+  if (store.player && !PREVIEW) await pullMine(2500);   // replay nonce lives on the board
   const seen = !!safeGet(reelSeenKey()), none = safeGet("g2:reelNone:" + dstr(mondayOf(new Date())));
   const auto = !PREVIEW && !seen && !none;
   const settle = p => Promise.race([p, new Promise(r => setTimeout(r, 5000))])
