@@ -1,8 +1,16 @@
-/* Daily Gauntlet service worker -- home-screen badge + push ONLY.
-   There is deliberately NO fetch handler: nothing is cached or intercepted,
-   so the game always loads fresh from the network. */
+/* Daily Gauntlet service worker -- home-screen badge + push, plus ONE fetch
+   rule: page loads (navigations) bypass the HTTP cache. GitHub Pages sends
+   max-age=600, so without this a phone could keep running a stale copy for
+   10 minutes after an update (bit Felix 2026-09-24: bonus run showed 0 of 3).
+   Nothing is ever stored; offline falls back to the normal cached fetch. */
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));
+
+self.addEventListener("fetch", e => {
+  const r = e.request;
+  if (r.mode !== "navigate" && !/\/(config\.js)(\?|$)/.test(new URL(r.url).pathname + new URL(r.url).search)) return;
+  e.respondWith(fetch(r, { cache: "no-store" }).catch(() => fetch(r)));
+});
 
 // payload: {"title": str, "body": str, "badge": int, "tag": str, "url": str}
 self.addEventListener("push", event => {
