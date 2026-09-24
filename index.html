@@ -576,6 +576,7 @@ const Music = (() => {
   };
   let ctx = null, master = null, tmr = null, step = 0, nextT = 0, cur = null;
   let muted = false;
+  let lvl = 1, startDelay = 0;   // per-track level + a one-time lead-in (the reel lets the fanfare ring first)
 
   function tone(freq, t, dur, type, peak) {
     if (!freq) return;
@@ -591,15 +592,15 @@ const Music = (() => {
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
     const s = ctx.createBufferSource(), hp = ctx.createBiquadFilter(), g = ctx.createGain();
     s.buffer = b; hp.type = "highpass"; hp.frequency.value = 7000;
-    g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    g.gain.setValueAtTime(0.06 * lvl, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
     s.connect(hp); hp.connect(g); g.connect(master); s.start(t);
   }
   function schedule() {
     const T = cur;
     while (nextT < ctx.currentTime + 0.12) {
       const s = step % T.lead.length;
-      tone(T.lead[s], nextT, T.stepDur * 0.9,  T.lw, LEAD_PEAK[T.lw]);
-      tone(T.bass[s], nextT, T.stepDur * 0.95, T.bw, BASS_PEAK[T.bw]);
+      tone(T.lead[s], nextT, T.stepDur * 0.9,  T.lw, LEAD_PEAK[T.lw] * lvl);
+      tone(T.bass[s], nextT, T.stepDur * 0.95, T.bw, BASS_PEAK[T.bw] * lvl);
       if (s % 2 === 1) hat(nextT);                         // off-beat groove
       nextT += T.stepDur; step++;
     }
@@ -611,7 +612,7 @@ const Music = (() => {
   // must be called SYNCHRONOUSLY in the click handler, before any await.
   function arm() {                                         // (re)start the step scheduler
     if (tmr || muted || !cur) return;
-    step = 0; nextT = ctx.currentTime + 0.05;
+    step = 0; nextT = ctx.currentTime + 0.05 + startDelay; startDelay = 0;
     schedule(); tmr = setInterval(schedule, 40);
   }
   function ensureCtx() {
@@ -682,9 +683,10 @@ const Music = (() => {
       // iOS still waking the context right after the unlocking tap: play it the moment it runs
       if (name !== "tick") ctx.resume().then(() => { if (ctx.state === "running") SFX[name](ctx.currentTime + 0.01 + delay, arg); }).catch(() => {});
     },
-    start(gameId) {
+    start(gameId, opts) {
       if (muted) return;
       cur = trackFor(gameId || "gauntlet");
+      lvl = (opts && opts.level) || 1; startDelay = (opts && opts.delay) || 0;
       ensureCtx();
       // If the context is running, arm now. If iOS is still resuming it
       // (state !== "running"), onstatechange arms as soon as it wakes.
@@ -2570,7 +2572,7 @@ function playReel(c, onDone, gate = false) {
 }
 function reelGo() {
   REEL.gate = false; REEL.t0 = performance.now(); document.getElementById("reel").classList.remove("gated");
-  Music.start("champ");
+  Music.start("champ", { delay: 1.7, level: 0.55 });   // fanfare alone first, then a softer bed
   reelNext();
 }
 function reelNext() {
@@ -2636,7 +2638,7 @@ function fxStart() {
 function fxStop() { cancelAnimationFrame(FX.raf); FX.raf = 0; FX.parts = []; if (FX.cx) FX.cx.clearRect(0, 0, FX.w, FX.h); }
 function fxBurst() {
   // a pop for roughly every other burst -- every burst stacked into noise over the fanfare
-  if (REEL.on && !REEL.gate && performance.now() - (FX.lastPop || 0) > 650) { FX.lastPop = performance.now(); Music.sfx("pop"); }
+  if (REEL.on && !REEL.gate && performance.now() - REEL.t0 > 1800 && performance.now() - (FX.lastPop || 0) > 650) { FX.lastPop = performance.now(); Music.sfx("pop"); }
   const pal = ["#22e5ff", "#ff2d95", "#ffd23f", getComputedStyle(document.getElementById("reel")).getPropertyValue("--acc").trim() || "#fff"];
   const x = FX.w * (0.15 + Math.random() * 0.7), y = FX.h * (0.12 + Math.random() * 0.35);
   const col = pal[Math.floor(Math.random() * pal.length)], n = 64;
