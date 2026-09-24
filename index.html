@@ -244,6 +244,12 @@
   /* menus fill the whole screen (home-screen app has ~870pt of height, the
      play area is only ~700) -- center the stack and breathe when it's tall */
   .fit { margin: auto 0; }
+  /* iOS home-screen app reports a viewport short by the status-bar height,
+     so fixed layers stopped ~60pt above the bottom (Felix, 2026-09-24).
+     --appH = the real screen height, set only in standalone mode. */
+  .screen { height: calc(var(--appH, 100%) + 2px); bottom: auto; }
+  #stage::after { height: var(--appH, 100%); bottom: auto; }
+  html, body { min-height: var(--appH, 100%); }
   @media (min-height: 780px) {
     h1 { font-size: 36px; }
     .titlebar { margin: 6px auto 8px; }
@@ -2009,6 +2015,15 @@ function fitHome() {
   }
 }
 addEventListener("resize", () => requestAnimationFrame(fitHome));
+function setAppHeight() {
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  if (!standalone) return;
+  const portrait = innerHeight >= innerWidth;
+  const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  document.documentElement.style.setProperty("--appH", Math.max(full, innerHeight) + "px");
+}
+setAppHeight();
+addEventListener("resize", () => { setAppHeight(); requestAnimationFrame(fitHome); });
 function renderHome() {
   const g = currentGame();
   document.getElementById("homeDate").textContent =
