@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GAUNTLET // FANFARE PICK</title>
+<style>
+  html, body { margin: 0; background: #07061a; color: #fff; font-family: "Menlo", "Courier New", monospace; }
+  body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px 18px; box-sizing: border-box; }
+  h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 5px; text-align: center; }
+  h1 .c { color: #22e5ff; text-shadow: 0 0 14px #22e5ff; } h1 .m { color: #ff2d95; text-shadow: 0 0 14px #ff2d95; }
+  .sub { color: #b9b5e8; font-size: 12px; letter-spacing: 3px; text-align: center; margin-bottom: 8px; }
+  button { width: min(100%, 360px); padding: 16px 14px; border-radius: 16px; border: 2px solid #22e5ff; background: rgba(34,229,255,.08);
+    color: #fff; font: inherit; font-size: 18px; letter-spacing: 4px; text-align: left; box-shadow: 0 0 18px rgba(34,229,255,.25); }
+  button b { display: block; font-size: 20px; }
+  button span { display: block; margin-top: 6px; font-size: 11px; letter-spacing: 2px; color: #b9b5e8; }
+  button.gold { border-color: #ffd23f; background: rgba(255,210,63,.08); box-shadow: 0 0 18px rgba(255,210,63,.25); }
+  button.dim { border-color: #555; box-shadow: none; opacity: .75; }
+  button.on { transform: scale(.98); box-shadow: 0 0 30px rgba(255,45,149,.6); border-color: #ff2d95; }
+  .note { color: #8a86b8; font-size: 11px; letter-spacing: 2px; text-align: center; max-width: 360px; line-height: 1.6; margin-top: 6px; }
+</style></head>
+<body>
+  <h1><span class="c">FANFARE</span> <span class="m">PICK</span></h1>
+  <div class="sub">TAP EACH ONE. PICK YOUR FAVORITE.</div>
+  <button data-f="A" class="gold"><b>A // CHAMPION</b><span>snare roll, triple pickup, big climb to the top note</span></button>
+  <button data-f="B"><b>B // ROYAL</b><span>timpani roll, trumpets in harmony, crowning chord</span></button>
+  <button data-f="C"><b>C // LEVEL CLEAR</b><span>whoosh up, lightning arpeggio, sparkling chord</span></button>
+  <button data-f="OLD" class="dim"><b>CURRENT ONE</b><span>what the reel plays right now, for comparison</span></button>
+  <div class="note">Phone off silent. Each plays the reveal moment only, then the reel's victory tune fades in the way it will in the game.</div>
+<script>
+let ctx = null, master = null;
+const m = n => 440 * Math.pow(2, (n - 69) / 12);
+const waves = {};
+function pulse(duty) {                      // chip-style pulse wave (25% / 12.5% duty = brassy NES timbre)
+  if (waves[duty]) return waves[duty];
+  const N = 48, re = new Float32Array(N), im = new Float32Array(N);
+  for (let n = 1; n < N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * duty);
+  return (waves[duty] = ctx.createPeriodicWave(re, im));
+}
+function unlock() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain(); master.gain.value = 0.5;
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+    master.connect(comp); comp.connect(ctx.destination);
+  }
+  if (ctx.state !== "running") ctx.resume();
+}
+// brass-ish chip voice: pulse + detuned twin, attack/sustain/release, delayed vibrato on long notes
+function horn(t, midi, dur, peak = 0.12, duty = 0.25) {
+  const f = m(midi), g = ctx.createGain(), out = ctx.createGain();
+  out.gain.value = 1; g.connect(out); out.connect(master);
+  const env = g.gain;
+  env.setValueAtTime(0.0001, t); env.linearRampToValueAtTime(peak, t + 0.012);
+  env.linearRampToValueAtTime(peak * 0.75, t + 0.09);
+  env.setValueAtTime(peak * 0.75, t + Math.max(0.1, dur - 0.06));
+  env.exponentialRampToValueAtTime(0.0001, t + dur + 0.08);
+  for (const det of [0, 7]) {
+    const o = ctx.createOscillator(); o.setPeriodicWave(pulse(duty)); o.frequency.value = f; o.detune.value = det;
+    if (dur > 0.3) {                         // vibrato fades in on held notes
+      const lfo = ctx.createOscillator(), lg = ctx.createGain();
+      lfo.frequency.value = 5.6; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(f * 0.006, t + 0.35);
+      lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + dur + 0.1);
+    }
+    const vg = ctx.createGain(); vg.gain.value = det ? 0.5 : 1; o.connect(vg); vg.connect(g);
+    o.start(t); o.stop(t + dur + 0.1);
+  }
+}
+function tri(t, midi, dur, peak = 0.25) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = "triangle"; o.frequency.value = m(midi);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.01);
+  g.gain.setValueAtTime(peak * 0.8, t + Math.max(0.02, dur - 0.05)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.06);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.1);
+}
+function timp(t, midi, peak = 0.45) {     // kettle drum: triangle with a fast pitch drop
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = "triangle"; o.frequency.setValueAtTime(m(midi) * 1.6, t); o.frequency.exponentialRampToValueAtTime(m(midi), t + 0.06);
+  g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.75);
+}
+function noise(t, dur, peak, type, f0, f1, attack = 0.002) {
+  const n = Math.ceil(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+  s.buffer = b; fl.type = type; fl.frequency.setValueAtTime(f0, t); if (f1) fl.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(fl); fl.connect(g); g.connect(master); s.start(t); s.stop(t + dur + 0.02);
+}
+const snare = (t, p = 0.16) => noise(t, 0.12, p, "bandpass", 1900);
+const crash = (t, p = 0.2, d = 1.6) => noise(t, d, p, "highpass", 4500);
+function roll(t, dur, p0, p1, hit = snare, step = 0.045) { const n = Math.floor(dur / step); for (let i = 0; i < n; i++) hit(t + i * step, p0 + (p1 - p0) * i / n); }
+
+const FAN = {
+  // A: snare roll -> G G G -> C (held) -> Ab / Bb climb -> high C with full chord, timpani and crash
+  A(t) {
+    roll(t, 0.34, 0.03, 0.14);
+    [0.36, 0.44, 0.52].forEach(d => { horn(t + d, 67, 0.07, 0.13); snare(t + d, 0.1); });
+    const c1 = t + 0.62;
+    horn(c1, 72, 0.4, 0.14); horn(c1, 64, 0.4, 0.07, 0.125); tri(c1, 48, 0.42); timp(c1, 36); snare(c1, 0.18);
+    horn(c1 + 0.46, 68, 0.18, 0.13); horn(c1 + 0.46, 63, 0.18, 0.07, 0.125); tri(c1 + 0.46, 44, 0.2); timp(c1 + 0.46, 32, 0.35);
+    horn(c1 + 0.68, 70, 0.18, 0.13); horn(c1 + 0.68, 65, 0.18, 0.07, 0.125); tri(c1 + 0.68, 46, 0.2); timp(c1 + 0.68, 34, 0.35);
+    const top = c1 + 0.9;
+    horn(top, 84, 1.2, 0.15); horn(top, 79, 1.2, 0.07, 0.125); horn(top, 76, 1.2, 0.06, 0.125);
+    tri(top, 48, 1.2, 0.3); tri(top, 36, 1.2, 0.22); timp(top, 36, 0.5); crash(top, 0.2, 1.8);
+    roll(top + 0.95, 0.3, 0.04, 0.12, t2 => timp(t2, 36, 0.25), 0.07);
+    return 2.9;
+  },
+  // B: timpani roll -> trumpets in thirds, dotted "ta-ta-TAAA" twice -> crowning chord
+  B(t) {
+    roll(t, 0.5, 0.12, 0.35, (t2, p) => timp(t2, 36, p), 0.06);
+    const a = t + 0.55;
+    const two = (d, hi, lo, dur) => { horn(a + d, hi, dur, 0.13); horn(a + d, lo, dur, 0.08, 0.125); };
+    two(0, 67, 64, 0.16); two(0.2, 72, 67, 0.1); two(0.32, 76, 72, 0.5); tri(a + 0.32, 48, 0.5); timp(a + 0.32, 36); crash(a + 0.32, 0.12, 0.8);
+    two(0.9, 74, 71, 0.16); two(1.1, 76, 72, 0.1); two(1.22, 79, 76, 1.1); tri(a + 1.22, 43, 0.5); tri(a + 1.72, 48, 0.7, 0.3);
+    horn(a + 1.72, 84, 0.7, 0.12); timp(a + 1.22, 31); timp(a + 1.72, 36, 0.5); crash(a + 1.72, 0.2, 1.5);
+    return 2.9;
+  },
+  // C: noise riser -> lightning two-octave arpeggio -> big chord with sparkles and a closing grace note
+  C(t) {
+    noise(t, 0.42, 0.12, "bandpass", 400, 5000, 0.38);
+    [60, 64, 67, 72, 76, 79, 84].forEach((n, i) => horn(t + 0.42 + i * 0.045, n, 0.06, 0.1 + i * 0.006));
+    const hit = t + 0.76;
+    horn(hit, 84, 1.0, 0.14); horn(hit, 79, 1.0, 0.07, 0.125); horn(hit, 76, 1.0, 0.06, 0.125);
+    tri(hit, 48, 1.0, 0.3); tri(hit, 36, 1.0, 0.2); timp(hit, 36, 0.45); crash(hit, 0.2, 1.4);
+    for (let i = 0; i < 14; i++) { const n = [96, 100, 103, 108][i % 4]; tri(hit + 0.08 + i * 0.055, n, 0.05, 0.06 * (1 - i / 16)); }
+    horn(hit + 1.05, 83, 0.07, 0.12); horn(hit + 1.12, 84, 0.55, 0.14); tri(hit + 1.12, 48, 0.55); timp(hit + 1.12, 36, 0.35);
+    return 2.6;
+  },
+  // what the reel plays now
+  OLD(t) {
+    const tone = (f, s, d, type, pk) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, s); g.gain.linearRampToValueAtTime(pk, s + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, s + d);
+      o.connect(g); g.connect(master); o.start(s); o.stop(s + d + 0.02); };
+    [72, 76, 79].forEach((n, i) => { tone(m(n), t + i * 0.11, 0.1, "square", 0.16); tone(m(n - 12), t + i * 0.11, 0.1, "triangle", 0.2); });
+    const h = t + 0.33; [72, 76, 79, 84].forEach(n => tone(m(n), h, 1.1, "square", 0.08));
+    tone(m(48), h, 1.2, "triangle", 0.3); tone(m(36), h, 1.2, "triangle", 0.25); noise(h, 1.2, 0.18, "highpass", 3000);
+    return 1.7;
+  },
+};
+// the reel's victory bed (C-G-Am-F climb, 132 bpm) at 55%, entering after the fanfare
+function bed(t, bars = 2) {
+  const step = 60 / 132 / 2, prog = [[48, [0, 4, 7, 12]], [43, [0, 4, 7, 12]], [45, [0, 3, 7, 12]], [41, [0, 4, 7, 12]]];
+  let k = 0;
+  for (let b = 0; b < bars * 4 / 4 * 4; b++) {
+    const [root, iv] = prog[b % 4];
+    for (let i = 0; i < 8; i++, k++) {
+      const s = t + k * step, fade = Math.min(1, k / 8);
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "square"; o.frequency.value = m(root + 24 + iv[i % 4]);
+      g.gain.setValueAtTime(0.0001, s); g.gain.linearRampToValueAtTime(0.11 * 0.55 * fade, s + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, s + step * 0.9);
+      o.connect(g); g.connect(master); o.start(s); o.stop(s + step);
+      tri(s, i === 2 || i === 6 ? root : root - 12, step * 0.9, 0.2 * 0.55 * fade);
+    }
+  }
+}
+let playing = 0;
+document.querySelectorAll("button").forEach(btn => btn.addEventListener("click", () => {
+  // a new tap cuts the previous fanfare dead so two never overlap
+  if (ctx) { try { ctx.close(); } catch (e) {} ctx = null; for (const k in waves) delete waves[k]; }
+  unlock();                                  // must stay synchronous inside the tap (iOS)
+  const id = ++playing;
+  document.querySelectorAll("button").forEach(b => b.classList.remove("on")); btn.classList.add("on");
+  const t = ctx.currentTime + 0.05, len = FAN[btn.dataset.f](t);
+  bed(t + len - 0.2, 1);
+  setTimeout(() => { if (id === playing) btn.classList.remove("on"); }, (len + 3) * 1000);
+}));
+</script>
+</body></html>
