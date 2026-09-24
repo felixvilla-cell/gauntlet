@@ -354,6 +354,7 @@
     text-shadow: 0 0 6px var(--acc), 0 0 18px var(--acc), 0 0 44px var(--acc), 0 0 80px var(--acc);
   }
   .r-name.flick { animation: nameflick 1.5s steps(1, end) both, rise .01s both; }
+  .r-name.pending, .r-sub.pending { visibility: hidden; animation: none; }
   @keyframes nameflick {
     0% { opacity: 0; } 8% { opacity: .9; } 12% { opacity: 0; } 20% { opacity: 1; } 24% { opacity: .2; }
     30% { opacity: 1; } 34% { opacity: .5; } 40%, 100% { opacity: 1; }
@@ -645,7 +646,88 @@ const Music = (() => {
     g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
   }
+  // ---- 8-bit champion fanfare (Felix picked 2026-09-24: shared run + hit opening,
+  // tune 3 SWING HERO or 4 LEVEL UP alternating by week, bar-3 arps + "ta-da" ending) ----
+  let fanBus = null, pwaves = {};
+  function bus() {                                          // fanfare-only limiter so the big hits never clip
+    if (fanBus) return fanBus;
+    const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.12;
+    fanBus = ctx.createGain(); fanBus.gain.value = 0.5; fanBus.connect(lim); lim.connect(ctx.destination);
+    return fanBus;
+  }
+  function pwave(duty) {
+    if (pwaves[duty]) return pwaves[duty];
+    const N = 48, re = new Float32Array(N), im = new Float32Array(N);
+    for (let n = 1; n < N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * duty);
+    return (pwaves[duty] = ctx.createPeriodicWave(re, im));
+  }
+  function chip(t, midi, dur, peak = 0.12, duty = 0.5, stac = 0.8) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.setPeriodicWave(pwave(duty)); o.frequency.value = m(midi);
+    const len = Math.max(0.03, dur * stac);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.004);
+    g.gain.linearRampToValueAtTime(peak * 0.7, t + Math.min(0.06, len * 0.6)); g.gain.setValueAtTime(peak * 0.7, t + len - 0.01);
+    g.gain.linearRampToValueAtTime(0.0001, t + len); o.connect(g); g.connect(bus()); o.start(t); o.stop(t + len + 0.02);
+  }
+  function nbass(t, midi, dur, peak = 0.3) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = m(midi);
+    const len = dur * 0.85; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.004);
+    g.gain.setValueAtTime(peak, t + len - 0.01); g.gain.linearRampToValueAtTime(0.0001, t + len);
+    o.connect(g); g.connect(bus()); o.start(t); o.stop(t + len + 0.02);
+  }
+  function nz(t, dur, peak, type, f0) {
+    const n = Math.ceil(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = b; f.type = type; f.frequency.value = f0;
+    g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(bus()); src.start(t); src.stop(t + dur + 0.02);
+  }
+  const nkick = (t, p = 0.5) => { nbass(t, 40, 0.05, p); nz(t, 0.05, p * 0.3, "lowpass", 900); };
+  const nsnare = (t, p = 0.12) => nz(t, 0.07, p, "bandpass", 2600);
+  const nhat = (t, p = 0.04) => nz(t, 0.025, p, "highpass", 8000);
+  const SCALE = [0, 2, 4, 5, 7, 9, 11];
+  function third(n) {                                       // diatonic third below, C major
+    const oct = Math.floor(n / 12), deg = SCALE.indexOf(n % 12);
+    if (deg < 0) return n - 3;
+    const d2 = deg - 2; return (d2 < 0 ? oct - 1 : oct) * 12 + SCALE[(d2 + 7) % 7];
+  }
+  const TUNES8 = {                                          // [beat after the hit, midi, beats]
+    swing: [[1, 75, .25], [1.25, 76, .75], [2, 79, .5], [2.5, 76, .25], [2.75, 79, .75], [3.5, 84, .5],
+            [4, 81, .25], [4.25, 80, .25], [4.5, 81, .5], [5, 84, 1], [6, 83, .25], [6.25, 84, .25], [6.5, 86, .5], [7, 79, 1]],
+    levelup: [[1, 72, .25], [1.25, 76, .25], [1.5, 79, .5], [2, 74, .25], [2.25, 77, .25], [2.5, 81, .5], [3, 76, .25], [3.25, 79, .25], [3.5, 83, .5],
+              [4, 84, 1.5], [5.5, 83, .25], [5.75, 84, .25], [6, 86, .5], [6.5, 84, .5], [7, 79, .5], [7.5, 76, .5]],
+  };
+  const B8 = 60 / 180;
+  function tada8(T) {                                       // bar 4: trill, "ta-da" turn, bass bounce
+    const b = B8;
+    for (let i = 0; i < 8; i++) chip(T + i * b / 8, i % 2 ? 86 : 84, b / 8, 0.12, 0.5, 0.95);
+    chip(T + b, 84, b * 1.5, 0.14, 0.5, 0.95); chip(T + b, 79, b * 1.5, 0.07, 0.125, 0.95); chip(T + b, 76, b * 1.5, 0.06, 0.125, 0.95);
+    chip(T + 2.5 * b, 83, b / 2, 0.12, 0.5, 0.8); chip(T + 3 * b, 84, b, 0.15, 0.5, 0.9); chip(T + 3 * b, 88, b, 0.07, 0.125, 0.9);
+    [36, 43, 48, 55, 60, 55, 48, 43].forEach((n, i) => nbass(T + i * b / 2, n, b / 2, 0.3));
+    nkick(T, 0.7); nz(T, 0.3, 0.1, "highpass", 5000); nkick(T + 3 * b, 0.6); nsnare(T + 3 * b, 0.14);
+  }
+  function fanfare8(t, tuneKey) {
+    const b = B8, bar = 4 * b, at = (br, bt = 0) => t + br * bar + bt * b, tune = TUNES8[tuneKey] || TUNES8.swing;
+    [55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81].forEach((n, i) => chip(at(0, i / 4), n, b / 4, 0.06 + i * 0.004, 0.25, 0.85));
+    for (let i = 0; i < 16; i++) nsnare(at(0, i / 4), 0.03 + i * 0.008);
+    for (let i = 0; i < 4; i++) nbass(at(0, i), 43 + (i % 2 ? 12 : 0), b);
+    const H = at(1);                                        // the HIT: the name pops in here
+    [84, 79, 76].forEach((n, i) => chip(H, n, b, i ? 0.08 : 0.13, i ? 0.125 : 0.5, 0.95)); nkick(H, 0.7); nz(H, 0.25, 0.1, "highpass", 5000);
+    tune.forEach(([bt, n, len]) => { chip(H + bt * b, n, len * b, 0.13, 0.5, 0.78); chip(H + bt * b, third(n), len * b, 0.06, 0.125, 0.78); });
+    const roots = [48, 48, 48, 48, 41, 41, 43, 43];
+    for (let i = 0; i < 8; i++) { const s2 = H + i * b, r = roots[i];
+      nbass(s2, r - 12, b / 2); nbass(s2 + b / 2, r - 5, b / 2, 0.24);
+      if (i % 2 === 0) nkick(s2, 0.45); else nsnare(s2, 0.12); nhat(s2 + b / 2); }
+    [[0, [80, 75, 72, 75, 80, 84], 44], [2, [82, 77, 74, 77, 82, 86], 46]].forEach(([bt, arp, root]) => {
+      arp.forEach((n, i) => { const s2 = at(3, bt + i / 3); chip(s2, n, b / 3, 0.12, 0.5, 0.9); chip(s2, n - 12, b / 3, 0.05, 0.125, 0.9); });
+      for (let i = 0; i < 2; i++) { nbass(at(3, bt + i), root - 12 + (i ? 12 : 0), b); nkick(at(3, bt + i), 0.4); nhat(at(3, bt + i + .5)); }
+    });
+    for (let i = 0; i < 8; i++) nsnare(at(3, 3 + i / 8), 0.04 + i * 0.012);
+    tada8(at(4));
+  }
   const SFX = {
+    fanfare8(t, tuneKey) { fanfare8(t, tuneKey); },
+    tada8(t) { tada8(t); },
     fanfare(t) {                                           // da-da-da-DAAA + crash
       [72, 76, 79].forEach((n, i) => { tone(m(n), t + i * 0.11, 0.1, "square", 0.16); tone(m(n - 12), t + i * 0.11, 0.1, "triangle", 0.2); });
       const h = t + 0.33;
@@ -676,6 +758,7 @@ const Music = (() => {
   };
   return {
     unlock() { if (!muted) ensureCtx(); },
+    FAN8_LEN: 5 * 4 * (60 / 180), FAN8_HIT: 4 * (60 / 180),
     // fire a reel sound effect now (+delay seconds); silent until iOS has unlocked audio
     sfx(name, delay = 0, arg) {
       if (muted || !ctx || !SFX[name]) return;
@@ -2497,7 +2580,7 @@ const MD = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" }
 const CROWN = `<svg class="r-crown" viewBox="0 0 96 64" aria-hidden="true"><path d="M6 20 L26 40 L48 6 L70 40 L90 20 L82 58 L14 58 Z" fill="#ffd23f" stroke="#fff3b0" stroke-width="2" stroke-linejoin="round"/><rect x="14" y="50" width="68" height="8" fill="#ffb300"/><circle cx="48" cy="6" r="5" fill="#ff2d95"/><circle cx="6" cy="20" r="4" fill="#22e5ff"/><circle cx="90" cy="20" r="4" fill="#22e5ff"/><circle cx="34" cy="50" r="3" fill="#ff2d95"/><circle cx="48" cy="50" r="3" fill="#22e5ff"/><circle cx="62" cy="50" r="3" fill="#ff2d95"/></svg>`;
 function reelCards(c) {
   const cards = [];
-  cards.push({ dur: 3800, fx: "fireworks", snd: "fanfare", html:
+  cards.push({ dur: 6900, fx: "fireworks", snd: "fanfare8", reveal: true, html:
     `<div class="rc"><div class="r-kick">LAST WEEK'S CHAMPION</div>
      <div class="r-week">${MD(c.weekFrom)} - ${MD(c.weekTo)}</div>${CROWN}
      <div class="r-name flick">${c.name}</div>
@@ -2516,7 +2599,7 @@ function reelCards(c) {
        <div class="r-score" data-count="${h.score}">${fmt(h.score)}</div>
        <div class="r-beat">${beat}</div></div>` });
   });
-  if (!hl.length) cards.push({ dur: 3200, fx: "coins", snd: "small", html:
+  if (!hl.length) cards.push({ dur: 3200, fx: "coins", snd: "tada8", html:
     `<div class="rc"><div class="r-kick">THE HIGHLIGHT</div>
      <div class="r-big mag" style="margin-top:14px">NEVER WON<br>A DAY</div>
      <div class="r-big gold" style="margin-top:10px">WON THE WEEK</div>
@@ -2540,7 +2623,7 @@ function reelCards(c) {
     `<div class="rc"><div class="r-kick">FINAL STANDINGS</div><div class="r-stand">${rows}</div>
      <div class="r-line">${margin}</div>
      <div class="r-line" style="margin-top:6px;color:var(--dim)">W = DAILY WINS // PTS = DAILY BESTS</div></div>` });
-  if (c.reign >= 2) cards.push({ dur: 2800, fx: "fireworks", snd: "fanfare", html:
+  if (c.reign >= 2) cards.push({ dur: 2800, fx: "fireworks", snd: "tada8", html:
     `<div class="rc">${CROWN.replace('class="r-crown"', 'class="r-crown sm"')}<div class="r-name" style="font-size:min(12vw,50px)">${c.name}</div>
      <div class="r-big gold" style="margin-top:14px">${c.reign}${c.reignCapped ? "+" : ""} WEEKS<br>IN A ROW</div></div>` });
   cards.push({ dur: 2900, fx: "fireworks", snd: "go", html:
@@ -2570,9 +2653,12 @@ function playReel(c, onDone, gate = false) {
   }
   reelGo();
 }
+// Felix liked tune 3 (SWING HERO) and tune 4 (LEVEL UP): they alternate by week
+const reelTune = () => (Math.floor(mondayOf(new Date()).getTime() / 604800000) % 2) ? "levelup" : "swing";
 function reelGo() {
   REEL.gate = false; REEL.t0 = performance.now(); document.getElementById("reel").classList.remove("gated");
-  Music.start("champ", { delay: 1.7, level: 0.55 });   // fanfare alone first, then a softer bed
+  // the victory tune (unchanged, Felix: "that was fine") enters right as the fanfare lands
+  Music.start("champ", { delay: Music.FAN8_LEN, level: 0.55 });
   reelNext();
 }
 function reelNext() {
@@ -2585,9 +2671,18 @@ function reelNext() {
     if (k === REEL.i) b.style.setProperty("--dur", card.dur + "ms");
   });
   document.getElementById("reelStage").innerHTML = card.html;
-  if (card.snd) Music.sfx(card.snd);
-  FX.mode = card.fx || "";
-  if (card.fx === "fireworks") FX.burstNow = 3;
+  if (card.snd) Music.sfx(card.snd, 0, card.snd === "fanfare8" ? reelTune() : undefined);
+  if (card.reveal) {                                        // name pops in on the fanfare's hit
+    document.querySelectorAll("#reelStage .r-name, #reelStage .r-sub").forEach(e => e.classList.add("pending"));
+    FX.mode = ""; clearTimeout(REEL.revealTmr);
+    REEL.revealTmr = setTimeout(() => {
+      if (!REEL.on) return;
+      document.querySelectorAll("#reelStage .pending").forEach(e => e.classList.remove("pending"));
+      FX.mode = "fireworks"; FX.burstNow = 3;
+    }, Music.FAN8_HIT * 1000);
+  }
+  FX.mode = card.reveal ? "" : (card.fx || "");            // reveal card: fireworks wait for the hit
+  if (card.fx === "fireworks" && !card.reveal) FX.burstNow = 3;
   if (card.footage) { attractStart(card.footage); el.classList.add("footage"); }
   else { attractStop(); el.classList.remove("footage"); }
   document.querySelectorAll("#reelStage [data-count]").forEach(countUp);
@@ -2610,7 +2705,7 @@ function countUp(n) {
 function endReel() {
   if (!REEL.on) return;
   clearTimeout(REEL.tmr);
-  REEL.on = false; REEL.gate = false; document.getElementById("reel").classList.remove("gated");
+  REEL.on = false; REEL.gate = false; clearTimeout(REEL.revealTmr); document.getElementById("reel").classList.remove("gated");
   Music.stop();
   attractStop(); fxStop();
   document.getElementById("reel").classList.remove("footage");
@@ -2638,7 +2733,7 @@ function fxStart() {
 function fxStop() { cancelAnimationFrame(FX.raf); FX.raf = 0; FX.parts = []; if (FX.cx) FX.cx.clearRect(0, 0, FX.w, FX.h); }
 function fxBurst() {
   // a pop for roughly every other burst -- every burst stacked into noise over the fanfare
-  if (REEL.on && !REEL.gate && performance.now() - REEL.t0 > 1800 && performance.now() - (FX.lastPop || 0) > 650) { FX.lastPop = performance.now(); Music.sfx("pop"); }
+  if (REEL.on && !REEL.gate && performance.now() - REEL.t0 > Music.FAN8_LEN * 1000 + 150 && performance.now() - (FX.lastPop || 0) > 650) { FX.lastPop = performance.now(); Music.sfx("pop"); }
   const pal = ["#22e5ff", "#ff2d95", "#ffd23f", getComputedStyle(document.getElementById("reel")).getPropertyValue("--acc").trim() || "#fff"];
   const x = FX.w * (0.15 + Math.random() * 0.7), y = FX.h * (0.12 + Math.random() * 0.35);
   const col = pal[Math.floor(Math.random() * pal.length)], n = 64;
