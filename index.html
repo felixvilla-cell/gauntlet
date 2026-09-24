@@ -116,6 +116,19 @@
     text-shadow: 0 0 16px rgba(255,201,60,.8), 0 0 50px rgba(255,201,60,.35);
   }
   .result-detail { color: var(--dim); font-size: 12px; line-height: 1.9; text-align: center; letter-spacing: 1px; }
+  /* pull-to-refresh pill (Felix, 2026-09-24: swipe down instead of
+     force-closing the app to see a fresh scoreboard) */
+  #ptr {
+    position: fixed; left: 50%; top: max(8px, env(safe-area-inset-top)); z-index: 45;
+    transform: translate(-50%, -80px); opacity: 0; pointer-events: none;
+    padding: 6px 16px; border: 1px solid var(--cyan); border-radius: 999px;
+    background: var(--panel); color: var(--cyan); font-size: 11px; letter-spacing: 2px;
+    text-shadow: 0 0 8px var(--cyan); box-shadow: 0 0 14px rgba(25,227,255,.35);
+    white-space: nowrap;
+  }
+  #ptr.ready, #ptr.busy { color: var(--gold); border-color: var(--gold); text-shadow: 0 0 8px var(--gold); box-shadow: 0 0 14px rgba(255,201,60,.4); }
+  #ptr.busy { animation: ptrPulse .8s ease-in-out infinite alternate; }
+  @keyframes ptrPulse { from { opacity: .55; } to { opacity: 1; } }
   .toast {
     position: absolute; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 50;
     background: #171430; border: 1px solid var(--gold); color: var(--gold);
@@ -524,6 +537,7 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <div id="ptr" aria-hidden="true">PULL TO REFRESH</div>
 </div>
 
 <script src="config.js"></script>
@@ -2909,12 +2923,92 @@ function checkRollover() {
 setInterval(checkRollover, 30000);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
-  if (!checkRollover() && !G.running) pullMine().then(() => {
-    updateBadge();
-    if (!document.getElementById("home").classList.contains("hidden")) renderHome();
-  });
+  if (!checkRollover() && !G.running) {
+    pullMine().then(() => {
+      updateBadge();
+      if (!document.getElementById("home").classList.contains("hidden")) renderHome();
+    });
+    // coming back to the app re-pulls the whole family board too; before
+    // this only a new day did, so the board sat stale until a force-close
+    refreshBoards();
+  }
   else updateBadge();
 });
+
+/* ================= PULL TO REFRESH ================= */
+// Swipe down on the home or results screen to re-pull the family board
+// (Felix, 2026-09-24: he was force-closing the app to see new scores).
+// If a newer build is live, the pull reloads the page instead, so an update
+// lands without the swipe-closed-and-reopen dance.
+const BUILD = "20260924-ptr";
+const PTR = { y0: null, x0: 0, d: 0, busy: false, fit: null };
+const PTR_GO = 64, PTR_MAX = 110;
+function ptrScreen() {
+  if (G.running || REEL.on) return null;
+  for (const id of ["home", "results"]) {
+    const el = document.getElementById(id);
+    if (!el.classList.contains("hidden")) return el;
+  }
+  return null;
+}
+function ptrPaint(d, label, cls, animate) {
+  const pill = document.getElementById("ptr");
+  pill.style.transition = animate ? "transform .25s ease, opacity .25s ease" : "none";
+  pill.style.transform = `translate(-50%, ${Math.round(d - 70)}px)`;
+  pill.style.opacity = String(Math.min(1, d / 40));
+  pill.className = cls || "";
+  if (label) pill.textContent = label;
+  if (PTR.fit) {
+    PTR.fit.style.transition = animate ? "transform .25s ease" : "none";
+    PTR.fit.style.transform = d > 0 ? `translateY(${Math.round(d * 0.5)}px)` : "";
+  }
+}
+async function ptrNewBuild() {
+  try {
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 4000);
+    const r = await fetch(location.pathname + "?v=" + Date.now(), { cache: "no-store", signal: ctl.signal });
+    clearTimeout(tm);
+    if (!r.ok) return false;
+    const m = /const BUILD = "([^"]+)"/.exec(await r.text());
+    return !!(m && m[1] !== BUILD);
+  } catch { return false; }
+}
+async function ptrRefresh() {
+  PTR.busy = true;
+  ptrPaint(PTR_GO, "REFRESHING...", "busy", true);
+  let label = "UPDATED";
+  try {
+    if (await ptrNewBuild()) { ptrPaint(PTR_GO, "NEW VERSION...", "busy", true); location.reload(); return; }
+    checkRollover();
+    if (!navigator.onLine || !fsBase() || !store.room) label = "OFFLINE -- TRY AGAIN";
+    else await Promise.race([refreshBoards(), new Promise(res => setTimeout(res, 8000))]);
+    updateBadge();
+  } catch { label = "OFFLINE -- TRY AGAIN"; }
+  ptrPaint(PTR_GO, label, "busy", true);
+  setTimeout(() => { ptrPaint(0, null, "", true); PTR.busy = false; }, 700);
+}
+document.addEventListener("touchstart", e => {
+  if (PTR.busy || e.touches.length !== 1) return;
+  const s = ptrScreen();
+  if (!s || s.scrollTop > 0) return;
+  PTR.y0 = e.touches[0].clientY; PTR.x0 = e.touches[0].clientX; PTR.d = 0;
+  PTR.fit = s.querySelector(".fit");
+}, { passive: true });
+document.addEventListener("touchmove", e => {
+  if (PTR.y0 === null) return;
+  const dy = e.touches[0].clientY - PTR.y0, dx = e.touches[0].clientX - PTR.x0;
+  PTR.d = dy > 0 && dy > Math.abs(dx) ? Math.min(dy * 0.5, PTR_MAX) : 0;
+  ptrPaint(PTR.d, PTR.d >= PTR_GO ? "RELEASE TO REFRESH" : "PULL TO REFRESH", PTR.d >= PTR_GO ? "ready" : "", false);
+}, { passive: true });
+function ptrEnd() {
+  if (PTR.y0 === null) return;
+  PTR.y0 = null;
+  if (PTR.d >= PTR_GO) ptrRefresh();
+  else ptrPaint(0, null, "", true);
+  PTR.d = 0;
+}
+document.addEventListener("touchend", ptrEnd, { passive: true });
+document.addEventListener("touchcancel", ptrEnd, { passive: true });
 
 /* ================= BOOT ================= */
 // ?player=papa|adelina|fd|oliver|gray pre-picks the player, so each family
