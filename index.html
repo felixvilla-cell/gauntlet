@@ -272,6 +272,36 @@
     .bigbtn { padding: 15px; margin-top: 6px; font-size: 22px; }
     .runsleft { margin-top: 10px; }
   }
+  /* results fill the tall screen too (Felix, 2026-09-24: it was all
+     bunched at the top) -- .fit centers it, this block spreads it out */
+  .respanel { margin-top: 12px; }
+  @media (min-height: 780px) {
+    #results h1 { font-size: 40px; }
+    #results .date { margin: 4px 0 10px; }
+    #results .result-score { font-size: 68px; margin: 10px 0 12px; }
+    #results .result-detail { line-height: 2.1; }
+    #results .respanel { margin-top: 26px; margin-bottom: 20px; padding: 14px 16px 16px; }
+    #results .board .row { padding: 6px 0; }
+    #results .board .name { white-space: nowrap; }
+    #results .bigbtn { padding: 20px; font-size: 24px; margin-top: 4px; }
+    #results .subbtn { padding: 16px; margin-top: 14px; font-size: 14px; }
+  }
+  #rotate {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: var(--bg); text-align: center; letter-spacing: 3px;
+  }
+  .rot-phone {
+    width: 34px; height: 58px; border: 3px solid var(--cyan); border-radius: 8px;
+    box-shadow: 0 0 14px rgba(25,227,255,.6); animation: rotphone 2s ease-in-out infinite;
+  }
+  @keyframes rotphone { 0%, 30% { transform: rotate(-90deg); } 60%, 100% { transform: rotate(0deg); } }
+  .rot-msg { color: var(--ink); font-size: 18px; line-height: 1.5; }
+  .rot-msg b { color: var(--magenta); font-size: 26px; text-shadow: 0 0 12px var(--magenta); }
+  .rot-sub { color: var(--dim); font-size: 11px; }
+  @media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+    #rotate { display: flex; }
+  }
   @media (prefers-reduced-motion: reduce) {
     #home::before, h1 span, .bigbtn, .bigbtn::after { animation: none !important; }
   }
@@ -460,19 +490,27 @@
   </div></div>
 
   <!-- RESULTS -->
-  <div id="results" class="screen hidden">
+  <div id="results" class="screen hidden"><div class="fit" id="resFit">
     <h1>RUN<span>OVER</span></h1>
     <p class="date" id="resDate"></p>
     <div class="newbest hidden" id="newBest">NEW DAILY BEST</div>
     <div class="result-score" id="resScore">0</div>
     <div class="result-detail" id="resDetail"></div>
-    <div class="panel" style="margin-top:12px">
+    <div class="panel respanel">
       <h2>TODAY'S DUEL</h2>
       <div class="board" id="board2"></div>
     </div>
     <button class="bigbtn" id="againBtn">RUN AGAIN</button>
     <button class="subbtn" id="shareBtn">SHARE RESULT</button>
     <button class="subbtn" id="homeBtn">BACK</button>
+  </div></div>
+
+  <!-- PORTRAIT ONLY: iOS web apps can't lock orientation, so landscape on a
+       phone gets covered and the run freezes until it's upright again -->
+  <div id="rotate" aria-hidden="true">
+    <div class="rot-phone"></div>
+    <div class="rot-msg">TURN YOUR PHONE<br><b>UPRIGHT</b></div>
+    <div class="rot-sub">THE GAUNTLET ONLY PLAYS VERTICAL</div>
   </div>
 
   <!-- WEEKLY CHAMPION REEL (auto-plays on the first open of a new week) -->
@@ -1882,8 +1920,11 @@ function endRun(died) {
   else syncScore(Math.max(score, prev), runs).then(() => { updateBadge(); refreshBoards(); });
 }
 
+const SIDEWAYS = matchMedia("(orientation: landscape) and (max-height: 540px) and (pointer: coarse)");
 function loop(ts) {
   if (!G.running) return;
+  // phone turned sideways: hold the run still until it's upright again
+  if (SIDEWAYS.matches) { G.lastTs = ts; requestAnimationFrame(loop); return; }
   const dt = Math.min((ts - G.lastTs) / 1000, 0.05);
   G.lastTs = ts; G.t += dt;
   if (G.t >= RUN_SECS()) { G.finished = true; endRun(false); return; }
