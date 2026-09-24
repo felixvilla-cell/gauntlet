@@ -41,7 +41,7 @@
     background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
   }
   .screen {
-    position: absolute; inset: 0; z-index: 20;
+    position: absolute; inset: -1px; z-index: 20;
     display: flex; flex-direction: column; align-items: center;
     padding: max(10px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
     overflow-y: auto; background: var(--bg);
@@ -1841,7 +1841,12 @@ async function share() {
 /* ================= UI WIRING ================= */
 function show(id) {
   for (const s of ["home", "results", "roomgate", "pingate"]) document.getElementById(s).classList.add("hidden");
-  if (id !== "game") document.getElementById(id).classList.remove("hidden");
+  if (id !== "game") {
+    // wipe the last game frame: a subpixel seam at the stage edge let the
+    // frozen run bleed through as a strip of neon walls (Felix, 2026-09-24)
+    cx.clearRect(0, 0, W, H);
+    document.getElementById(id).classList.remove("hidden");
+  }
 }
 function toast(msg) {
   const t = document.getElementById("toast");
