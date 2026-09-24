@@ -23,6 +23,8 @@
   <button data-f="A" class="gold"><b>A // CHAMPION</b><span>snare roll, triple pickup, big climb to the top note</span></button>
   <button data-f="B"><b>B // ROYAL</b><span>timpani roll, trumpets in harmony, crowning chord</span></button>
   <button data-f="C"><b>C // LEVEL CLEAR</b><span>whoosh up, lightning arpeggio, sparkling chord</span></button>
+  <button data-f="D" class="gold"><b>D // ANTHEM (BIG)</b><span>6 sec: drum roll build, heroic melody, huge finish</span></button>
+  <button data-f="E" class="gold"><b>E // ARENA (BIG)</b><span>6 sec: stadium drums, rising synth, massive final hit</span></button>
   <button data-f="OLD" class="dim"><b>CURRENT ONE</b><span>what the reel plays right now, for comparison</span></button>
   <div class="note">Phone off silent. Each plays the reveal moment only, then the reel's victory tune fades in the way it will in the game.</div>
 <script>
@@ -86,6 +88,13 @@ function noise(t, dur, peak, type, f0, f1, attack = 0.002) {
   s.connect(fl); fl.connect(g); g.connect(master); s.start(t); s.stop(t + dur + 0.02);
 }
 const snare = (t, p = 0.16) => noise(t, 0.12, p, "bandpass", 1900);
+function kick(t, p = 0.7) {              // sine thump with a fast pitch drop
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = "sine"; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+  g.gain.setValueAtTime(p, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.4);
+}
+const chord = (t, notes, dur, peak = 0.07) => notes.forEach((n, i) => horn(t, n, dur, i ? peak * 0.7 : peak * 1.4, i ? 0.125 : 0.25));
 const crash = (t, p = 0.2, d = 1.6) => noise(t, d, p, "highpass", 4500);
 function roll(t, dur, p0, p1, hit = snare, step = 0.045) { const n = Math.floor(dur / step); for (let i = 0; i < n; i++) hit(t + i * step, p0 + (p1 - p0) * i / n); }
 
@@ -124,6 +133,57 @@ const FAN = {
     for (let i = 0; i < 14; i++) { const n = [96, 100, 103, 108][i % 4]; tri(hit + 0.08 + i * 0.055, n, 0.05, 0.06 * (1 - i / 16)); }
     horn(hit + 1.05, 83, 0.07, 0.12); horn(hit + 1.12, 84, 0.55, 0.14); tri(hit + 1.12, 48, 0.55); timp(hit + 1.12, 36, 0.35);
     return 2.6;
+  },
+  // D: ~6s. timpani + snare roll build with a low swell -> stab -> heroic phrase in thirds ->
+  // falling run -> Ab / Bb climb -> huge held C with sparkles -> final stab
+  D(t) {
+    roll(t, 1.0, 0.05, 0.42, (t2, p) => timp(t2, 31, p), 0.07);
+    roll(t + 0.35, 0.65, 0.02, 0.15);
+    noise(t, 1.0, 0.1, "bandpass", 300, 4000, 0.9);
+    tri(t, 31, 1.0, 0.18);
+    const h1 = t + 1.0;                                     // stab
+    chord(h1, [72, 67, 64, 60], 0.35); tri(h1, 36, 0.4, 0.3); timp(h1, 36, 0.55); kick(h1); crash(h1, 0.2, 1.0);
+    const a = h1 + 0.45, q = 0.16;                          // heroic phrase: G C . D E | G ---
+    const two = (d, hi, lo, dur) => { horn(a + d, hi, dur, 0.14); horn(a + d, lo, dur, 0.08, 0.125); };
+    two(0, 67, 64, q * 0.9); two(q, 72, 67, q * 1.4); two(q * 2.5, 74, 71, q * 0.5); two(q * 3, 76, 72, q * 0.9);
+    two(q * 4, 79, 76, q * 3.5); tri(a, 48, q * 4); tri(a + q * 4, 41, q * 3.5, 0.3); timp(a + q * 4, 29, 0.4); snare(a + q * 4, 0.16);
+    const r = a + q * 8;                                    // falling run
+    [81, 79, 77, 76, 74].forEach((n, i) => horn(r + i * 0.075, n, 0.07, 0.12));
+    tri(r, 43, 0.4, 0.3);
+    const c = r + 0.45;                                     // Ab -> Bb climb
+    chord(c, [68, 63, 60], 0.24); tri(c, 44, 0.25, 0.32); timp(c, 32, 0.45); kick(c, 0.5);
+    chord(c + 0.3, [70, 65, 62], 0.24); tri(c + 0.3, 46, 0.25, 0.32); timp(c + 0.3, 34, 0.45); kick(c + 0.3, 0.5);
+    roll(c + 0.3, 0.3, 0.06, 0.16);
+    const top = c + 0.62;                                   // THE hit
+    chord(top, [84, 79, 76, 72], 2.0, 0.08); tri(top, 48, 2.0, 0.32); tri(top, 36, 2.0, 0.24);
+    timp(top, 36, 0.6); kick(top, 0.8); crash(top, 0.24, 2.2); crash(top + 0.02, 0.12, 2.4);
+    for (let i = 0; i < 22; i++) { const n = [96, 100, 103, 108][i % 4]; tri(top + 0.1 + i * 0.06, n, 0.05, 0.05 * (1 - i / 24)); }
+    roll(top + 1.2, 0.8, 0.08, 0.3, (t2, p) => timp(t2, 36, p), 0.06);
+    const end = top + 2.05;                                 // button
+    chord(end, [84, 79, 76, 72], 0.28, 0.09); tri(end, 36, 0.3, 0.35); timp(end, 36, 0.6); kick(end, 0.8); crash(end, 0.2, 1.4);
+    return 6.2;
+  },
+  // E: ~6s. stadium beat (kick / snare) building for two bars under a rising synth,
+  // double-time snare into a massive chord, echo hits, final slam
+  E(t) {
+    const b = 60 / 140;                                     // one beat
+    for (let i = 0; i < 8; i++) {
+      const s2 = t + i * b; kick(s2, 0.55 + i * 0.03);
+      if (i % 2) snare(s2, 0.14 + i * 0.01); else noise(s2 + b / 2, 0.05, 0.05, "highpass", 7000);
+      tri(s2, i < 4 ? 36 : 41, b * 0.9, 0.22); tri(s2 + b / 2, i < 4 ? 48 : 53, b * 0.4, 0.14);
+    }
+    [60, 62, 64, 67, 69, 72, 74, 76].forEach((n, i) => horn(t + i * b, n, b * 0.85, 0.08 + i * 0.008));
+    noise(t + 4 * b, 4 * b, 0.12, "bandpass", 400, 6000, 4 * b - 0.05);
+    roll(t + 7 * b, b, 0.08, 0.2, snare, b / 8);
+    const hit = t + 8 * b;
+    chord(hit, [84, 79, 76, 72], 1.1, 0.09); tri(hit, 48, 1.1, 0.34); tri(hit, 36, 1.1, 0.26);
+    kick(hit, 0.9); timp(hit, 36, 0.6); crash(hit, 0.26, 1.8);
+    [0.55, 0.8].forEach((d, i) => { chord(hit + 1.1 + d, [79 + i * 2, 76, 72], 0.18, 0.07); kick(hit + 1.1 + d, 0.6); snare(hit + 1.1 + d, 0.14); });
+    const slam = hit + 2.3;
+    chord(slam, [84, 79, 76, 72, 67], 1.3, 0.09); tri(slam, 36, 1.3, 0.34); tri(slam, 24, 1.3, 0.22);
+    kick(slam, 1.0); timp(slam, 36, 0.6); crash(slam, 0.26, 2.0);
+    for (let i = 0; i < 16; i++) { const n = [100, 103, 108, 112][i % 4]; tri(slam + 0.1 + i * 0.07, n, 0.05, 0.05 * (1 - i / 18)); }
+    return 6.4;
   },
   // what the reel plays now
   OLD(t) {
