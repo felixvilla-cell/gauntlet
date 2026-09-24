@@ -47,15 +47,6 @@
     overflow-y: auto; background: var(--bg);
   }
   .hidden { display: none !important; }
-  .mutebtn {
-    position: fixed; z-index: 60;
-    top: max(10px, env(safe-area-inset-top)); right: 12px;
-    width: 38px; height: 38px; border-radius: 10px;
-    background: rgba(10,14,30,.72); color: var(--cyan);
-    border: 1px solid rgba(25,227,255,.5); font-size: 18px; line-height: 1;
-    text-shadow: 0 0 10px var(--cyan); cursor: pointer; padding: 0;
-  }
-  .mutebtn.off { color: #66708a; border-color: #2a3350; text-shadow: none; }
   h1 {
     font-size: 36px; letter-spacing: 5px; margin: 4px 0 2px; text-align: center;
     color: var(--cyan); text-shadow: 0 0 12px var(--cyan), 0 0 40px rgba(25,227,255,.4);
@@ -204,7 +195,6 @@
   </div>
 
   <div class="toast" id="toast"></div>
-  <button id="muteBtn" class="mutebtn" aria-label="toggle music">&#9835;</button>
 </div>
 
 <script src="config.js"></script>
@@ -240,7 +230,8 @@ const MAX_RUNS = 3;
    (arpeggiates each chord), an octave-bouncing bass, and off-beat hi-hats.
    Tracks differ by key, tempo, waveform, and arp pattern so the games sound
    distinct. Starts on RUN (a user gesture, so autoplay policy is satisfied),
-   stops on run end. Muted state persists per device (g2:muted). */
+   stops on run end. No mute button (Felix removed it 2026-09-24 -- it sat on
+   the title); phone volume controls it, and any old saved mute is ignored. */
 const Music = (() => {
   const m = n => 440 * Math.pow(2, (n - 69) / 12);        // MIDI note -> Hz
   // chord tones from a root: [root, third, fifth, octave]. Lead plays these +24
@@ -292,7 +283,7 @@ const Music = (() => {
     return cache[id];
   };
   let ctx = null, master = null, tmr = null, step = 0, nextT = 0, cur = null;
-  let muted = localStorage.getItem("g2:muted") === "1";
+  let muted = false;
 
   function tone(freq, t, dur, type, peak) {
     if (!freq) return;
@@ -1896,12 +1887,6 @@ document.getElementById("againBtn").onclick = async () => {
   if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player)) startRun();
 };
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
-(() => {
-  const mb = document.getElementById("muteBtn");
-  const paint = () => { mb.classList.toggle("off", Music.muted()); mb.innerHTML = Music.muted() ? "&#128263;" : "&#9835;"; };
-  paint();
-  mb.onclick = () => { const wasMuted = Music.toggle(); paint(); if (!wasMuted && G.running) Music.start(Object.keys(GAMES).find(k => GAMES[k] === G.game) || "gauntlet"); };
-})();
 document.getElementById("shareBtn").onclick = share;
 document.getElementById("roomGo").onclick = () => {
   const v = document.getElementById("roomInput").value.trim().toLowerCase();
