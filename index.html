@@ -615,8 +615,14 @@ const store = {
     localStorage.setItem(key, v);
   },
 };
-const runsUsed = () => parseInt(store.day("runs") || "0", 10);
-const bestToday = () => parseInt(store.day("best") || "0", 10);
+// Runs and best are FAMILY-BOARD truth, not per-device: Safari and the
+// home-screen app keep separate storage, so a second device used to get 3
+// fresh runs and its lower best overwrote the board (Felix, 2026-09-24).
+// SRV caches the server's entry for today; the local copy still covers offline.
+const SRV = {};
+const srvMine = () => SRV[`${today()}:${store.player}`] || { score: 0, runs: 0 };
+const runsUsed = () => Math.max(parseInt(store.day("runs") || "0", 10), srvMine().runs);
+const bestToday = () => Math.max(parseInt(store.day("best") || "0", 10), srvMine().score);
 
 /* ================= CANVAS / SIZING ================= */
 const W = 400, H = 700;
@@ -1747,11 +1753,28 @@ const fsBase = () => CFG.firebase
   ? `https://firestore.googleapis.com/v1/projects/${CFG.firebase.projectId}/databases/(default)/documents`
   : null;
 
+// fresh read of today's server entry for the current player -> SRV
+async function pullMine(timeoutMs = 3000) {
+  if (!fsBase() || !store.room || !store.player) return srvMine();
+  try {
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), timeoutMs);
+    const r = await fetch(`${fsBase()}/rooms/${encodeURIComponent(store.room)}/days/${today()}?key=${CFG.firebase.apiKey}`, { signal: ctl.signal });
+    clearTimeout(tm);
+    if (r.ok) {
+      const f = (await r.json()).fields?.scores?.mapValue?.fields?.[store.player]?.mapValue?.fields || {};
+      SRV[`${today()}:${store.player}`] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10) };
+    } else if (r.status === 404) SRV[`${today()}:${store.player}`] = { score: 0, runs: 0 };
+  } catch {}
+  return srvMine();
+}
 async function syncScore(best, runs) {
   if (!fsBase() || !store.room) {
     toast("score not synced -- open the game from the family link");
     return;
   }
+  // never let this device's number lower the board: merge with the server first
+  const srv = await pullMine();
+  best = Math.max(best, srv.score); runs = Math.max(runs, srv.runs);
   const url = `${fsBase()}/rooms/${encodeURIComponent(store.room)}/days/${today()}` +
     `?updateMask.fieldPaths=scores.${store.player}&key=${CFG.firebase.apiKey}`;
   const body = { fields: { scores: { mapValue: { fields: {
@@ -1765,6 +1788,7 @@ async function syncScore(best, runs) {
   try {
     const r = await fetch(url, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(await r.text());
+    SRV[`${today()}:${store.player}`] = { score: best, runs };
   } catch (e) { toast("offline -- score saved on this phone, will sync next run"); }
 }
 
@@ -1870,6 +1894,8 @@ let healedThisLoad = false;
 async function refreshBoards() {
   const days = await fetchDays(14);
   const t = days[today()] || {};
+  for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0 };
+  if (store.player) { renderHome(); }   // runs-left may change once the board is known
   // fold in local best in case sync failed
   if (store.player && bestToday() > (t[store.player]?.score || 0)) {
     t[store.player] = { score: bestToday(), runs: runsUsed() };
@@ -2056,13 +2082,22 @@ function renderHome() {
     : `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
   fitHome();
 }
+// last check against the family board, so another device's runs count too
+async function runsLeftOnBoard() {
+  if (PREVIEW) return true;
+  await pullMine(2500);
+  if (runsUsed() < MAX_RUNS) return true;
+  renderHome(); show("home");
+  toast("no runs left today -- all 3 used");
+  return false;
+}
 document.getElementById("runBtn").onclick = async () => {
   Music.unlock();   // resume audio IN the gesture, before the await (iOS)
-  if (await ensurePin(store.player)) startRun();
+  if (await ensurePin(store.player) && await runsLeftOnBoard()) startRun();
 };
 document.getElementById("againBtn").onclick = async () => {
   Music.unlock();   // resume audio IN the gesture, before the await (iOS)
-  if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player)) startRun();
+  if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player) && await runsLeftOnBoard()) startRun();
 };
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
 document.getElementById("shareBtn").onclick = share;
