@@ -761,7 +761,9 @@ const store = {
 // fresh runs and its lower best overwrote the board (Felix, 2026-09-24).
 // SRV caches the server's entry for today; the local copy still covers offline.
 const SRV = {};
-const srvMine = () => SRV[`${today()}:${store.player}`] || { score: 0, runs: 0 };
+const srvMine = () => SRV[`${today()}:${store.player}`] || { score: 0, runs: 0, bonus: 0 };
+// daily cap = 3 + any bonus runs Felix granted for today on the family board (scores.<pid>.bonus)
+const maxRuns = () => MAX_RUNS + (srvMine().bonus || 0);
 const runsUsed = () => Math.max(parseInt(store.day("runs") || "0", 10), srvMine().runs);
 const bestToday = () => Math.max(parseInt(store.day("best") || "0", 10), srvMine().score);
 
@@ -1727,10 +1729,10 @@ function endRun(died) {
     (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "") +
     (PREVIEW
       ? `<br>PREVIEW RUN &nbsp;//&nbsp; not scored, runs don't count`
-      : `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${MAX_RUNS}`);
+      : `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${maxRuns()}`);
   document.getElementById("resDate").textContent = `${dateLabel()} // ${G.game.name} // ${modDisplay().name}`;
-  document.getElementById("againBtn").disabled = !PREVIEW && runs >= MAX_RUNS;
-  document.getElementById("againBtn").textContent = !PREVIEW && runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
+  document.getElementById("againBtn").disabled = !PREVIEW && runs >= maxRuns();
+  document.getElementById("againBtn").textContent = !PREVIEW && runs >= maxRuns() ? "NO RUNS LEFT" : "RUN AGAIN";
   show("results");
   updateBadge();
   if (PREVIEW) refreshBoards();
@@ -1910,8 +1912,8 @@ async function pullMine(timeoutMs = 3000) {
     clearTimeout(tm);
     if (r.ok) {
       const f = (await r.json()).fields?.scores?.mapValue?.fields?.[store.player]?.mapValue?.fields || {};
-      SRV[`${today()}:${store.player}`] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10) };
-    } else if (r.status === 404) SRV[`${today()}:${store.player}`] = { score: 0, runs: 0 };
+      SRV[`${today()}:${store.player}`] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10), bonus: parseInt(f.bonus?.integerValue || "0", 10) };
+    } else if (r.status === 404) SRV[`${today()}:${store.player}`] = { score: 0, runs: 0, bonus: 0 };
   } catch {}
   return srvMine();
 }
@@ -1931,12 +1933,13 @@ async function syncScore(best, runs) {
       runs:  { integerValue: String(runs) },
       boost: { stringValue: G.boost || "" },
       ts:    { integerValue: String(Date.now()) },
+      bonus: { integerValue: String(srv.bonus || 0) },
     }}}
   }}}}};
   try {
     const r = await fetch(url, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(await r.text());
-    SRV[`${today()}:${store.player}`] = { score: best, runs };
+    SRV[`${today()}:${store.player}`] = { score: best, runs, bonus: srv.bonus || 0 };
   } catch (e) { toast("offline -- score saved on this phone, will sync next run"); }
 }
 
@@ -1966,7 +1969,7 @@ async function fetchDayList(list, strict = false) {
       out[day] = {};
       for (const [pid, v] of Object.entries(scores)) {
         const f = v.mapValue?.fields || {};
-        out[day][pid] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10) };
+        out[day][pid] = { score: parseInt(f.score?.integerValue || "0", 10), runs: parseInt(f.runs?.integerValue || "0", 10), bonus: parseInt(f.bonus?.integerValue || "0", 10) };
       }
     }
     return out;
@@ -2048,7 +2051,7 @@ let healedThisLoad = false;
 async function refreshBoards() {
   const days = await fetchDays(14);
   const t = days[today()] || {};
-  for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0 };
+  for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0, bonus: v.bonus || 0 };
   updateBadge();
   if (store.player) { renderHome(); }   // runs-left may change once the board is known
   // fold in local best in case sync failed
@@ -2233,14 +2236,14 @@ function renderHome() {
     G.pickedBoost = b.dataset.id; renderHome();
   });
   const used = store.player ? runsUsed() : 0;
-  const canRun = store.player && G.pickedBoost && (PREVIEW || used < MAX_RUNS);
+  const canRun = store.player && G.pickedBoost && (PREVIEW || used < maxRuns());
   const btn = document.getElementById("runBtn");
   btn.disabled = !canRun;
   btn.textContent = !store.player ? "PICK A PLAYER" : !G.pickedBoost ? "PICK A BOOST"
-    : PREVIEW ? "PREVIEW RUN" : used >= MAX_RUNS ? "DONE FOR TODAY" : "RUN";
+    : PREVIEW ? "PREVIEW RUN" : used >= maxRuns() ? "DONE FOR TODAY" : "RUN";
   document.getElementById("runsLeft").textContent = !store.player ? ""
     : PREVIEW ? "PREVIEW MODE -- the new rules early, runs don't count"
-    : `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
+    : `${maxRuns() - used} of ${maxRuns()} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
   renderReelLine(); renderBadgeBtn();
   fitHome();
 }
@@ -2249,9 +2252,9 @@ async function runsLeftOnBoard() {
   if (PREVIEW) return true;
   await pullMine(2500);
   updateBadge();
-  if (runsUsed() < MAX_RUNS) return true;
+  if (runsUsed() < maxRuns()) return true;
   renderHome(); show("home");
-  toast("no runs left today -- all 3 used");
+  toast(`no runs left today -- all ${maxRuns()} used`);
   return false;
 }
 document.getElementById("runBtn").onclick = async () => {
@@ -2260,7 +2263,7 @@ document.getElementById("runBtn").onclick = async () => {
 };
 document.getElementById("againBtn").onclick = async () => {
   Music.unlock();   // resume audio IN the gesture, before the await (iOS)
-  if ((PREVIEW || runsUsed() < MAX_RUNS) && await ensurePin(store.player) && await runsLeftOnBoard()) startRun();
+  if ((PREVIEW || runsUsed() < maxRuns()) && await ensurePin(store.player) && await runsLeftOnBoard()) startRun();
 };
 document.getElementById("homeBtn").onclick = () => { renderHome(); show("home"); refreshBoards(); };
 document.getElementById("shareBtn").onclick = share;
@@ -2278,7 +2281,7 @@ document.getElementById("roomGo").onclick = () => {
 function updateBadge() {
   try {
     if (PREVIEW || REEL_PENDING || !("setAppBadge" in navigator)) return;
-    const left = store.player ? Math.max(0, MAX_RUNS - runsUsed()) : 0;
+    const left = store.player ? Math.max(0, maxRuns() - runsUsed()) : 0;
     const n = left + (reelUnseen() ? 1 : 0);
     const p = n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge();
     if (p && p.catch) p.catch(() => {});
