@@ -19,12 +19,13 @@
 </style></head>
 <body>
   <h1><span class="c">FANFARE</span> <span class="m">PICK</span></h1>
-  <div class="sub">TAP EACH ONE. PICK YOUR FAVORITE.</div>
-  <button data-f="D" class="gold"><b>D // ANTHEM (BIG)</b><span>6 sec: drum roll build, heroic melody, huge finish</span></button>
-  <button data-f="E" class="gold"><b>E // ARENA (BIG)</b><span>6 sec: stadium drums, rising synth, massive final hit</span></button>
-  <button data-f="F" class="gold" style="border-color:#ff2d95;box-shadow:0 0 22px rgba(255,45,149,.45)"><b>F // LEGEND (BIGGEST)</b><span>8.5 sec: full build, name slams in, heroic theme, giant finish, rolls straight into the tune</span></button>
-  <button data-f="OLD" class="dim"><b>CURRENT ONE</b><span>what the reel plays right now, for comparison</span></button>
-  <div class="note">Phone off silent. Each plays the reveal, then rolls straight into the reel's victory tune (now with drums, no gap).</div>
+  <div class="sub">SAME LEGEND FANFARE. ONLY THE HERO MELODY CHANGES.</div>
+  <button data-f="F1" class="gold"><b>1 // CLASSIC</b><span>the one you heard: G-C-D-E, hold, then a falling answer</span></button>
+  <button data-f="F2" class="gold"><b>2 // SUPERHERO</b><span>leaps up C-E-G to a high held C, then glides down</span></button>
+  <button data-f="F3" class="gold"><b>3 // MARCH</b><span>dotted "ta-da-DAA" drumline rhythm, proud and stompy</span></button>
+  <button data-f="F4" class="gold"><b>4 // SOARING</b><span>big movie leaps, long notes, the most epic feel</span></button>
+  <button data-f="F5" class="gold"><b>5 // ARCADE QUEST</b><span>fast chiptune run up the scale, video-game hero</span></button>
+  <div class="note">Phone off silent. The name slams in on the big hit about 2 seconds in; the melody right after it is what changes.</div>
 <script>
 let ctx = null, master = null;
 const m = n => 440 * Math.pow(2, (n - 69) / 12);
@@ -114,6 +115,23 @@ const chord = (t, notes, dur, peak = 0.07) => notes.forEach((n, i) => horn(t, n,
 const crash = (t, p = 0.2, d = 1.6) => noise(t, d, p, "highpass", 4500);
 function roll(t, dur, p0, p1, hit = snare, step = 0.045) { const n = Math.floor(dur / step); for (let i = 0; i < n; i++) hit(t + i * step, p0 + (p1 - p0) * i / n); }
 
+// hero melodies: [beat after the hit, midi note, length in beats]. Bar 1 is C, bar 2 is F then G.
+const THEMES = {
+  // F1 keeps its original hand-picked harmony (4th value) so it sounds exactly like the version Felix approved
+  F1: [[2, 67, .5, 64], [2.5, 72, .75, 67], [3.25, 74, .25, 71], [3.5, 76, .5, 72], [4, 79, 2, 76], [6, 81, .5, 77], [6.5, 79, .5, 76], [7, 77, .5, 74], [7.5, 74, .5, 71]],
+  F2: [[2, 72, .5], [2.5, 76, .5], [3, 79, 1], [4, 84, 1.5], [5.5, 83, .25], [5.75, 81, .25], [6, 79, .5], [6.5, 77, .5], [7, 76, .5], [7.5, 74, .5]],
+  F3: [[2, 67, .75], [2.75, 67, .25], [3, 72, 1], [4, 72, .75], [4.75, 74, .25], [5, 77, 1], [6, 79, .75], [6.75, 77, .25], [7, 76, .5], [7.5, 74, .5]],
+  F4: [[2, 72, 1], [3, 79, 1], [4, 84, 2], [6, 81, 1], [7, 79, .5], [7.5, 74, .5]],
+  F5: [[2, 72, .25], [2.25, 74, .25], [2.5, 76, .25], [2.75, 79, .25], [3, 81, .5], [3.5, 79, .5], [4, 84, 1], [5, 81, .5], [5.5, 77, .5], [6, 79, .5], [6.5, 83, .5], [7, 79, .5], [7.5, 74, .5]],
+};
+// harmony a diatonic third below in C major (every theme note is in the scale)
+const SCALE = [0, 2, 4, 5, 7, 9, 11];
+function third(n) {
+  const oct = Math.floor(n / 12), deg = SCALE.indexOf(n % 12);
+  if (deg < 0) return n - 3;
+  const d2 = deg - 2, o2 = d2 < 0 ? oct - 1 : oct;
+  return o2 * 12 + SCALE[(d2 + 7) % 7];
+}
 const FAN = {
   // A: snare roll -> G G G -> C (held) -> Ab / Bb climb -> high C with full chord, timpani and crash
   A(t) {
@@ -210,7 +228,7 @@ const FAN = {
   // bar 0 build (G) -> bar 1 HIT, name reveal, theme -> bar 2 theme peak (F, G) ->
   // bar 3 Ab / Bb climb with fills -> bar 4 giant C held with sparkles ->
   // bar 5 tom run -> bar 6 downbeat = the victory tune starts right on it
-  F(t) {
+  F(t, theme = THEMES.F1) {
     const b = 60 / 140, bar = 4 * b, at = (br, bt = 0) => t + br * bar + bt * b;
     // continuous background chords, one per span, butted end to end
     [[0, 0, 4, [43, 55, 59, 62]], [1, 0, 4, [48, 55, 60, 64]], [2, 0, 2, [41, 53, 57, 60]], [2, 2, 2, [43, 55, 59, 62]],
@@ -227,10 +245,8 @@ const FAN = {
     const H = at(1);
     chord(H, [84, 79, 76, 72, 60], 2 * b, 0.09); tri(H, 36, 2 * b, 0.36); tri(H, 24, 2 * b, 0.24);
     kick(H, 1.0); timp(H, 36, 0.65); crash(H, 0.26, 2.2); crash(H + 0.02, 0.14, 2.4);
-    const theme = [[2, 67, .5], [2.5, 72, .75], [3.25, 74, .25], [3.5, 76, .5], [4, 79, 2], [6, 81, .5], [6.5, 79, .5], [7, 77, .5], [7.5, 74, .5]];
-    const third = { 67: 64, 72: 67, 74: 71, 76: 72, 79: 76, 81: 77, 77: 74 };
-    theme.forEach(([bt, n, len]) => { const s2 = H + bt * b, d = len * b;
-      horn(s2, n, d, 0.14); horn(s2, n - 12, d, 0.08); horn(s2, third[n] || n - 3, d, 0.08, 0.125); });
+    theme.forEach(([bt, n, len, h]) => { const s2 = H + bt * b, d = len * b;
+      horn(s2, n, d, 0.14); horn(s2, n - 12, d, 0.08); horn(s2, h || third(n), d, 0.08, 0.125); });
     // stadium beat under bars 1-2
     for (let i = 0; i < 8; i++) { const s2 = H + i * b;
       if (i % 2 === 0) kick(s2, 0.7); else snare(s2, 0.16);
@@ -258,6 +274,8 @@ const FAN = {
     chord(E6, [84, 79, 76, 72, 60], 0.6, 0.1); tri(E6, 36, 0.6, 0.38); kick(E6, 1.0); timp(E6, 36, 0.7); crash(E6, 0.26, 2.2);
     return 5 * bar;
   },
+  F1: t => FAN.F(t, THEMES.F1), F2: t => FAN.F(t, THEMES.F2), F3: t => FAN.F(t, THEMES.F3),
+  F4: t => FAN.F(t, THEMES.F4), F5: t => FAN.F(t, THEMES.F5),
   // what the reel plays now
   OLD(t) {
     const tone = (f, s, d, type, pk) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.value = f;
