@@ -1729,7 +1729,7 @@ function endRun(died) {
     (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "") +
     (PREVIEW
       ? `<br>PREVIEW RUN &nbsp;//&nbsp; not scored, runs don't count`
-      : `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; run ${runs} of ${maxRuns()}`);
+      : `<br>best today: ${Math.max(score, prev).toLocaleString()} &nbsp;//&nbsp; ${Math.max(0, maxRuns() - runs)} of ${Math.max(MAX_RUNS, maxRuns() - runs)} runs left`);
   document.getElementById("resDate").textContent = `${dateLabel()} // ${G.game.name} // ${modDisplay().name}`;
   document.getElementById("againBtn").disabled = !PREVIEW && runs >= maxRuns();
   document.getElementById("againBtn").textContent = !PREVIEW && runs >= maxRuns() ? "NO RUNS LEFT" : "RUN AGAIN";
@@ -2242,7 +2242,7 @@ function renderHome() {
     : PREVIEW ? "PREVIEW RUN" : used >= maxRuns() ? "DONE FOR TODAY" : "RUN";
   document.getElementById("runsLeft").textContent = !store.player ? ""
     : PREVIEW ? "PREVIEW MODE -- the new rules early, runs don't count"
-    : `${maxRuns() - used} of ${maxRuns()} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
+    : `${maxRuns() - used} of ${Math.max(MAX_RUNS, maxRuns() - used)} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
   renderReelLine(); renderBadgeBtn();
   fitHome();
 }
@@ -2661,8 +2661,15 @@ async function reelBoot() {
   show("reel");
   document.getElementById("reelProg").innerHTML = "";
   document.getElementById("reelStage").innerHTML = `<div class="r-load">LOADING LAST WEEK</div>`;
-  const data = await Promise.race([loadReel(), new Promise(r => setTimeout(() => r(undefined), 4000))]);
+  const lp = loadReel();
+  const data = await Promise.race([lp, new Promise(r => setTimeout(() => r(undefined), 8000))]);
   REEL_PENDING = false; updateBadge();
+  // slow network: last week landed after we gave up waiting -- still auto-play it
+  // if the player is just sitting on the home screen (not mid-run, not already watching)
+  if (data === undefined) lp.then(d => {
+    const home = !document.getElementById("home").classList.contains("hidden");
+    if (d && d.champ && reelUnseen() && !REEL.on && !G.running && home) playReel(d.champ);
+  });
   if (data && data.champ && !REEL.on && !G.running) { playReel(data.champ); return; }
   if (data && !data.champ) safeSet("g2:reelNone:" + data.monday, "1");   // nobody played last week
   if (!REEL.on && !el.classList.contains("hidden")) { show("home"); renderHome(); }
