@@ -19,12 +19,12 @@
 </style></head>
 <body>
   <h1><span class="c">FANFARE</span> <span class="m">PICK</span></h1>
-  <div class="sub">YOUR TWO FAVORITES + TWO BLENDS</div>
-  <button data-f="F4" class="gold"><b>4 // SOARING</b><span>big movie leaps, long notes</span></button>
-  <button data-f="F5" class="gold"><b>5 // ARCADE QUEST</b><span>fast chiptune run up the scale</span></button>
-  <button data-f="F6" class="gold" style="border-color:#ff2d95;box-shadow:0 0 22px rgba(255,45,149,.45)"><b>A // QUEST TO THE SKY</b><span>5's fast run up, flying into 4's big held high note and soaring finish</span></button>
-  <button data-f="F7" class="gold" style="border-color:#ff2d95;box-shadow:0 0 22px rgba(255,45,149,.45)"><b>B // SKY TO THE QUEST</b><span>4's big leaps up, then 5's fast arcade ending</span></button>
-  <div class="note">Phone off silent. The name slams in on the big hit about 2 seconds in; the melody right after it is what changes.</div>
+  <div class="sub">8-BIT ROUND // PURE CHIP SOUND</div>
+  <button data-f="M1" class="gold"><b>1 // BOUNCE</b><span>hoppy tune over a boom-chick bass</span></button>
+  <button data-f="M2" class="gold"><b>2 // STAR RUN</b><span>fast octave-jumping notes, invincible feel</span></button>
+  <button data-f="M3" class="gold"><b>3 // SWING HERO</b><span>swingy, sneaky little slides into each note</span></button>
+  <button data-f="M4" class="gold"><b>4 // LEVEL UP</b><span>three-note hops climbing higher and higher</span></button>
+  <div class="note">Phone off silent. Original tunes in the classic 8-bit style. The name pops in on the first hit; each rolls straight into a bouncy 8-bit victory tune.</div>
 <script>
 let ctx = null, master = null;
 const m = n => 440 * Math.pow(2, (n - 69) / 12);
@@ -133,7 +133,81 @@ function third(n) {
   const d2 = deg - 2, o2 = d2 < 0 ? oct - 1 : oct;
   return o2 * 12 + SCALE[(d2 + 7) % 7];
 }
+// ===== 8-BIT ROUND: pure NES-style voices, dry and bouncy =====
+// two pulse channels + triangle bass + short noise drums, nothing else
+function chip(t, midi, dur, peak = 0.12, duty = 0.5, stac = 0.8) {
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.setPeriodicWave(pulse(duty)); o.frequency.value = m(midi);
+  const len = Math.max(0.03, dur * stac);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.004);
+  g.gain.linearRampToValueAtTime(peak * 0.7, t + Math.min(0.06, len * 0.6)); g.gain.setValueAtTime(peak * 0.7, t + len - 0.01);
+  g.gain.linearRampToValueAtTime(0.0001, t + len); o.connect(g); g.connect(master); o.start(t); o.stop(t + len + 0.02);
+}
+function nbass(t, midi, dur, peak = 0.3) {    // NES triangle bass, cut clean
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = m(midi);
+  const len = dur * 0.85; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.004);
+  g.gain.setValueAtTime(peak, t + len - 0.01); g.gain.linearRampToValueAtTime(0.0001, t + len);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + len + 0.02);
+}
+const nkick = (t, p = 0.5) => { nbass(t, 40, 0.05, p); noise(t, 0.05, p * 0.3, "lowpass", 900); };
+const nsnare = (t, p = 0.12) => noise(t, 0.07, p, "bandpass", 2600);
+const nhat = (t, p = 0.04) => noise(t, 0.025, p, "highpass", 8000);
+// shared 5-bar frame (180 bpm): bar 0 pickup run -> bar 1 HIT + tune -> bar 2 tune (F, G) ->
+// bar 3 Ab / Bb triplet arps -> bar 4 C "ta-da" -> bar 5 downbeat = the victory tune starts
+function EIGHT(t, tune) {
+  const b = 60 / 180, bar = 4 * b, at = (br, bt = 0) => t + br * bar + bt * b;
+  // bar 0: scale run up + snare roll
+  [55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81].forEach((n, i) => chip(at(0, i / 4), n, b / 4, 0.06 + i * 0.004, 0.25, 0.85));
+  for (let i = 0; i < 16; i++) nsnare(at(0, i / 4), 0.03 + i * 0.008);
+  [43, 43, 43, 43].forEach((n, i) => nbass(at(0, i), n + (i % 2 ? 12 : 0), b));
+  // bar 1 downbeat: the HIT (name pops in)
+  const H = at(1);
+  [84, 79, 76].forEach((n, i) => chip(H, n, b, i ? 0.08 : 0.13, i ? 0.125 : 0.5, 0.95)); nkick(H, 0.7); noise(H, 0.25, 0.1, "highpass", 5000);
+  // bars 1-2: the tune (lead + a harmony a third below on the second pulse)
+  tune.forEach(([bt, n, len]) => { chip(H + bt * b, n, len * b, 0.13, 0.5, 0.78); chip(H + bt * b, third(n), len * b, 0.06, 0.125, 0.78); });
+  // boom-chick bass + drums under bars 1-2 (never stops)
+  const roots = [48, 48, 48, 48, 41, 41, 43, 43];
+  for (let i = 0; i < 8; i++) { const s2 = H + i * b, r = roots[i];
+    nbass(s2, r - 12, b / 2); nbass(s2 + b / 2, r - 5, b / 2, 0.24);
+    if (i % 2 === 0) nkick(s2, 0.45); else nsnare(s2, 0.12); nhat(s2 + b / 2); }
+  // bar 3: Ab then Bb, 8th-note triplet arps that bounce down and up
+  [[0, [80, 75, 72, 75, 80, 84], 44], [2, [82, 77, 74, 77, 82, 86], 46]].forEach(([bt, arp, root]) => {
+    arp.forEach((n, i) => { const s2 = at(3, bt + i / 3); chip(s2, n, b / 3, 0.12, 0.5, 0.9); chip(s2, n - 12, b / 3, 0.05, 0.125, 0.9); });
+    for (let i = 0; i < 2; i++) { nbass(at(3, bt + i), root - 12 + (i ? 12 : 0), b); nkick(at(3, bt + i), 0.4); nhat(at(3, bt + i + .5)); }
+  });
+  for (let i = 0; i < 8; i++) nsnare(at(3, 3 + i / 8), 0.04 + i * 0.012);
+  // bar 4: C -- trill on the high C, "ta-da" turn, big bass bounce
+  const T = at(4);
+  for (let i = 0; i < 8; i++) chip(T + i * b / 8, i % 2 ? 86 : 84, b / 8, 0.12, 0.5, 0.95);
+  chip(T + b, 84, b * 1.5, 0.14, 0.5, 0.95); chip(T + b, 79, b * 1.5, 0.07, 0.125, 0.95); chip(T + b, 76, b * 1.5, 0.06, 0.125, 0.95);
+  chip(T + 2.5 * b, 83, b / 2, 0.12, 0.5, 0.8); chip(T + 3 * b, 84, b, 0.15, 0.5, 0.9); chip(T + 3 * b, 88, b, 0.07, 0.125, 0.9);
+  [36, 43, 48, 55, 60, 55, 48, 43].forEach((n, i) => nbass(T + i * b / 2, n, b / 2, 0.3));
+  nkick(T, 0.7); noise(T, 0.3, 0.1, "highpass", 5000); nkick(T + 3 * b, 0.6); nsnare(T + 3 * b, 0.14);
+  return 5 * bar;
+}
+// four original 8-bit tunes (bars 1-2 after the hit); [beat, midi, length in beats]
+const EIGHT_TUNES = {
+  M1: [[1, 76, .5], [1.5, 79, .5], [2, 81, .75], [2.75, 79, .25], [3, 76, .5], [3.5, 72, .5],
+       [4, 74, .5], [4.5, 76, .5], [5, 77, 1], [6, 79, .5], [6.5, 77, .25], [6.75, 76, .25], [7, 74, .5], [7.5, 71, .5]],
+  M2: [[1, 72, .5], [1.5, 84, .5], [2, 79, .5], [2.5, 76, .5], [3, 77, .5], [3.5, 81, .5],
+       [4, 84, .5], [4.5, 81, .5], [5, 79, .5], [5.5, 83, .5], [6, 86, .5], [6.5, 83, .5], [7, 79, .5], [7.5, 74, .5]],
+  M3: [[1, 75, .25], [1.25, 76, .75], [2, 79, .5], [2.5, 76, .25], [2.75, 79, .75], [3.5, 84, .5],
+       [4, 81, .25], [4.25, 80, .25], [4.5, 81, .5], [5, 84, 1], [6, 83, .25], [6.25, 84, .25], [6.5, 86, .5], [7, 79, 1]],
+  M4: [[1, 72, .25], [1.25, 76, .25], [1.5, 79, .5], [2, 74, .25], [2.25, 77, .25], [2.5, 81, .5], [3, 76, .25], [3.25, 79, .25], [3.5, 83, .5],
+       [4, 84, 1.5], [5.5, 83, .25], [5.75, 84, .25], [6, 86, .5], [6.5, 84, .5], [7, 79, .5], [7.5, 76, .5]],
+};
+// bouncy 8-bit victory tune for after the fanfare: boom-chick bass, hoppy lead, never silent
+function bed8(t, bars = 4) {
+  const b = 60 / 180, prog = [[48, [0, 4, 7]], [43, [0, 4, 7]], [45, [0, 3, 7]], [41, [0, 4, 7]]];
+  const lead = [[0, 2, .5], [.5, 1, .5], [1, 2, .5], [2, 3, .75], [2.75, 2, .25], [3, 1, .5], [3.5, 0, .5]];
+  for (let br = 0; br < bars; br++) {
+    const [root, iv] = prog[br % 4], t0 = t + br * 4 * b;
+    lead.forEach(([bt, k, len]) => { const n = root + 24 + (k === 3 ? 12 : iv[k]); chip(t0 + bt * b, n, len * b, 0.1, 0.5, 0.75); chip(t0 + bt * b, third(n), len * b, 0.04, 0.125, 0.75); });
+    for (let i = 0; i < 4; i++) { nbass(t0 + i * b, root - 12, b / 2, 0.28); nbass(t0 + (i + .5) * b, root - 5, b / 2, 0.22);
+      if (i % 2 === 0) nkick(t0 + i * b, 0.4); else nsnare(t0 + i * b, 0.11); nhat(t0 + (i + .5) * b, 0.04); }
+  }
+}
 const FAN = {
+  M1: t => EIGHT(t, EIGHT_TUNES.M1), M2: t => EIGHT(t, EIGHT_TUNES.M2), M3: t => EIGHT(t, EIGHT_TUNES.M3), M4: t => EIGHT(t, EIGHT_TUNES.M4),
   // A: snare roll -> G G G -> C (held) -> Ab / Bb climb -> high C with full chord, timpani and crash
   A(t) {
     roll(t, 0.34, 0.03, 0.14);
@@ -315,7 +389,7 @@ document.querySelectorAll("button").forEach(btn => btn.addEventListener("click",
   const id = ++playing;
   document.querySelectorAll("button").forEach(b => b.classList.remove("on")); btn.classList.add("on");
   const t = ctx.currentTime + 0.05, len = FAN[btn.dataset.f](t);
-  bed(t + len, 4);                            // lands exactly on the fanfare's last downbeat
+  if (btn.dataset.f[0] === "M") bed8(t + len, 4); else bed(t + len, 4);   // lands exactly on the last downbeat
   setTimeout(() => { if (id === playing) btn.classList.remove("on"); }, (len + 3) * 1000);
 }));
 </script>
