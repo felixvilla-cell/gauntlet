@@ -9,6 +9,7 @@
 <link rel="icon" type="image/png" sizes="64x64" href="icon-64.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#07060f">
 <meta property="og:title" content="DAILY GAUNTLET">
 <meta property="og:description" content="Villa family duel. New maze every day. 3 runs. No mercy.">
@@ -274,6 +275,128 @@
   @media (prefers-reduced-motion: reduce) {
     #home::before, h1 span, .bigbtn, .bigbtn::after { animation: none !important; }
   }
+
+  /* ===== HOME-SCREEN BADGE + WEEKLY CHAMPION REEL (Felix, 2026-09-24) ===== */
+  .reelline {
+    display: block; margin: 6px auto 0; padding: 3px 11px; width: fit-content; max-width: 100%;
+    font: inherit; font-size: 11px; letter-spacing: 1px; cursor: pointer;
+    color: #fff; background: rgba(255,46,166,.10); border: 1px solid rgba(255,46,166,.65);
+    border-radius: 999px; text-shadow: 0 0 8px rgba(255,46,166,.8);
+    box-shadow: 0 0 10px rgba(255,46,166,.3);
+  }
+  .reelline b { color: var(--gold); text-shadow: 0 0 8px rgba(255,201,60,.8); }
+  .reelline:empty { display: none; }
+  .badgebtn {
+    display: block; margin: 7px auto 0; padding: 5px 14px;
+    font: inherit; font-size: 11px; font-weight: bold; letter-spacing: 3px; cursor: pointer;
+    color: var(--gold); background: rgba(255,201,60,.08);
+    border: 1px solid var(--gold); border-radius: 999px;
+    box-shadow: 0 0 12px rgba(255,201,60,.4), inset 0 0 8px rgba(255,201,60,.15);
+    text-shadow: 0 0 8px rgba(255,201,60,.7);
+  }
+  #reel {
+    position: fixed; left: 0; top: 0; width: 100vw; height: var(--appH, 100%); z-index: 30;
+    overflow: hidden; cursor: pointer;
+    background:
+      radial-gradient(ellipse 90% 45% at 50% -8%, rgba(255,46,166,.28), transparent 70%),
+      radial-gradient(ellipse 80% 35% at 50% 108%, rgba(25,227,255,.22), transparent 70%),
+      var(--bg);
+    --acc: #22e5ff;
+  }
+  /* day cards: the course plays underneath (#game canvas), dimmed */
+  #reel.footage { background: transparent; }
+  #reel .reel-shade { position: absolute; inset: 0; display: none;
+    background: radial-gradient(ellipse 60% 32% at 50% 50%, rgba(7,6,15,.78), rgba(7,6,15,.42)); }
+  #reel.footage .reel-shade { display: block; }
+  #reelFx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; background: transparent; }
+  .reel-grid {
+    position: absolute; left: -20%; right: -20%; bottom: 0; height: 36%; pointer-events: none; z-index: 1;
+    background-image:
+      linear-gradient(rgba(255,46,166,.45) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(25,227,255,.35) 1px, transparent 1px);
+    background-size: 100% 28px, 36px 100%;
+    transform: perspective(240px) rotateX(60deg); transform-origin: 50% 100%;
+    -webkit-mask-image: linear-gradient(to top, #000 10%, transparent 95%);
+            mask-image: linear-gradient(to top, #000 10%, transparent 95%);
+    animation: gridrun 1.2s linear infinite;
+  }
+  #reel.footage .reel-grid { opacity: 0; }
+  .reel-prog {
+    position: absolute; z-index: 4; left: 14px; right: 14px; top: max(12px, calc(env(safe-area-inset-top) + 4px));
+    display: flex; gap: 4px;
+  }
+  .reel-prog i { flex: 1; height: 3px; border-radius: 2px; background: rgba(232,230,255,.18); overflow: hidden; }
+  .reel-prog i b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--magenta)); }
+  .reel-prog i.done b { width: 100%; }
+  .reel-prog i.on b { animation: progfill var(--dur, 3s) linear forwards; }
+  @keyframes progfill { to { width: 100%; } }
+  .reel-skip {
+    position: absolute; z-index: 4; left: 0; right: 0; bottom: max(14px, calc(env(safe-area-inset-bottom) + 4px));
+    text-align: center; font-size: 10px; letter-spacing: 4px; color: rgba(185,181,232,.55);
+  }
+  .reel-stage {
+    position: absolute; z-index: 3; inset: 0; padding: 40px 18px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  }
+  .rc { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; animation: cardin .45s cubic-bezier(.2,.9,.3,1.2) both; }
+  @keyframes cardin { from { opacity: 0; transform: translateY(18px) scale(.94); } to { opacity: 1; transform: none; } }
+  .rc > * { animation: rise .5s ease-out both; }
+  .rc > *:nth-child(2) { animation-delay: .12s; } .rc > *:nth-child(3) { animation-delay: .24s; }
+  .rc > *:nth-child(4) { animation-delay: .36s; } .rc > *:nth-child(5) { animation-delay: .48s; }
+  .rc > *:nth-child(6) { animation-delay: .6s; }  .rc > *:nth-child(7) { animation-delay: .72s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .r-kick { font-size: 11px; letter-spacing: 5px; color: #b9b5e8; }
+  .r-week { font-size: 11px; letter-spacing: 3px; color: var(--dim); margin-top: 6px; }
+  .r-crown { width: 96px; height: 64px; margin: 22px 0 6px; filter: drop-shadow(0 0 10px rgba(255,210,63,.9)) drop-shadow(0 0 26px rgba(255,210,63,.45)); }
+  .r-crown.sm { width: 60px; height: 40px; margin: 0 0 10px; }
+  .r-name {
+    font-size: min(17vw, 76px); font-weight: bold; letter-spacing: 4px; line-height: 1; color: #fff; white-space: nowrap;
+    text-shadow: 0 0 6px var(--acc), 0 0 18px var(--acc), 0 0 44px var(--acc), 0 0 80px var(--acc);
+  }
+  .r-name.flick { animation: nameflick 1.5s steps(1, end) both, rise .01s both; }
+  @keyframes nameflick {
+    0% { opacity: 0; } 8% { opacity: .9; } 12% { opacity: 0; } 20% { opacity: 1; } 24% { opacity: .2; }
+    30% { opacity: 1; } 34% { opacity: .5; } 40%, 100% { opacity: 1; }
+  }
+  .r-sub { margin-top: 16px; font-size: 13px; letter-spacing: 3px; color: var(--gold); text-shadow: 0 0 10px rgba(255,210,63,.7); }
+  .r-sub.cyan { color: var(--cyan); text-shadow: 0 0 10px rgba(34,229,255,.7); }
+  .r-day { font-size: 30px; font-weight: bold; letter-spacing: 6px; color: #fff; margin-top: 8px;
+    text-shadow: 0 0 8px var(--magenta), 0 0 24px rgba(255,46,166,.6); }
+  .r-game { font-size: 17px; font-weight: bold; letter-spacing: 3px; color: #fff; margin-top: 12px;
+    text-shadow: 0 0 6px var(--cyan), 0 0 18px var(--cyan); }
+  .r-pill { display: inline-block; margin-top: 10px; padding: 3px 12px; border: 1px solid var(--gold); border-radius: 999px;
+    font-size: 11px; font-weight: bold; letter-spacing: 3px; color: var(--gold); background: rgba(255,201,60,.08);
+    box-shadow: 0 0 10px rgba(255,201,60,.35); }
+  .r-score { font-size: min(15vw, 64px); font-weight: bold; letter-spacing: 2px; color: var(--gold); margin-top: 18px; line-height: 1;
+    text-shadow: 0 0 16px rgba(255,210,63,.8), 0 0 50px rgba(255,210,63,.35); font-variant-numeric: tabular-nums; }
+  .r-who { font-size: 13px; letter-spacing: 3px; color: #fff; margin-top: 4px; text-shadow: 0 0 10px var(--acc); }
+  .r-beat { margin-top: 16px; font-size: 13px; letter-spacing: 2px; color: var(--ink); }
+  .r-beat b { color: var(--magenta); text-shadow: 0 0 8px rgba(255,46,166,.7); }
+  .r-big { font-size: min(10vw, 40px); font-weight: bold; letter-spacing: 3px; line-height: 1.15; color: #fff;
+    text-shadow: 0 0 8px var(--acc), 0 0 26px var(--acc); }
+  .r-big.gold { color: var(--gold); text-shadow: 0 0 10px rgba(255,210,63,.9), 0 0 30px rgba(255,210,63,.5); }
+  .r-big.mag { text-shadow: 0 0 8px var(--magenta), 0 0 26px var(--magenta); }
+  .r-stand { width: 100%; margin-top: 16px; }
+  .r-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-top: 8px; border-radius: 10px;
+    background: linear-gradient(180deg, rgba(23,20,48,.92), rgba(12,10,26,.92)); border: 1px solid rgba(25,227,255,.3);
+    font-size: 15px; letter-spacing: 1px; }
+  .r-row .rk { width: 18px; color: var(--dim); }
+  .r-row .nm { flex: 1; text-align: left; font-weight: bold; }
+  .r-row .wn { color: var(--cyan); font-size: 12px; }
+  .r-row .pt { width: 78px; text-align: right; color: var(--gold); }
+  .r-row.first { border-color: var(--gold); box-shadow: 0 0 16px rgba(255,210,63,.35); }
+  .r-row.first .nm, .r-row.first .rk { color: var(--gold); text-shadow: 0 0 8px rgba(255,210,63,.7); }
+  .r-line { margin-top: 14px; font-size: 12px; letter-spacing: 2px; color: #b9b5e8; }
+  .r-go { font-size: min(12vw, 48px); font-weight: bold; letter-spacing: 5px; line-height: 1.25; }
+  .r-go span { display: block; animation: rise .4s ease-out both; }
+  .r-go span:nth-child(1) { color: var(--cyan); text-shadow: 0 0 10px var(--cyan), 0 0 30px var(--cyan); }
+  .r-go span:nth-child(2) { color: var(--gold); text-shadow: 0 0 10px var(--gold), 0 0 30px var(--gold); animation-delay: .45s; }
+  .r-go span:nth-child(3) { color: var(--magenta); text-shadow: 0 0 10px var(--magenta), 0 0 34px var(--magenta); animation-delay: .9s; font-size: 1.5em; }
+  .r-load { font-size: 12px; letter-spacing: 5px; color: #b9b5e8; animation: flicker 2.4s infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .reel-grid, .rc, .rc > *, .r-name.flick, .r-go span, .r-load { animation: none !important; }
+    .reel-prog i.on b { animation: none; width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -324,9 +447,11 @@
       <div class="streakline" id="streakline"></div>
       <div class="weekline" id="weekline"></div>
       <div class="champline" id="champline"></div>
+      <button class="reelline" id="reelline" type="button"></button>
     </div>
     <button class="bigbtn" id="runBtn">RUN</button>
     <div class="runsleft" id="runsLeft"></div>
+    <button class="badgebtn hidden" id="badgeBtn" type="button">TURN ON YOUR BADGE</button>
   </div></div>
 
   <!-- RESULTS -->
@@ -343,6 +468,16 @@
     <button class="bigbtn" id="againBtn">RUN AGAIN</button>
     <button class="subbtn" id="shareBtn">SHARE RESULT</button>
     <button class="subbtn" id="homeBtn">BACK</button>
+  </div>
+
+  <!-- WEEKLY CHAMPION REEL (auto-plays on the first open of a new week) -->
+  <div id="reel" class="hidden" aria-live="polite">
+    <div class="reel-shade"></div>
+    <canvas id="reelFx"></canvas>
+    <div class="reel-grid"></div>
+    <div class="reel-prog" id="reelProg"></div>
+    <div class="reel-stage" id="reelStage"></div>
+    <div class="reel-skip">TAP TO SKIP</div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -540,11 +675,13 @@ const MODS = [
   { id: "squeeze", name: "TIGHT SQUEEZE", desc: "narrow gaps, +250 finish bonus" },
 ];
 const modIndexRaw = ds => Math.floor(mulberry32(seedFromDate(ds + "mod"))() * MODS.length);
-function todayMod() {
+function todayMod() { return modForDate(new Date()); }
+// Twist for any calendar date (the champion reel replays past days).
+function modForDate(at) {
   // Never the same twist two days running. Each day's pick dodges the
   // PREVIOUS day's effective pick, so replay the last 30 days from a fixed
   // offset -- cheap, and every device walks the same dates to the same answer.
-  const d = new Date(); d.setDate(d.getDate() - 30);
+  const d = new Date(at.getFullYear(), at.getMonth(), at.getDate()); d.setDate(d.getDate() - 30);
   let prev = -1;
   for (let k = 0; k <= 30; k++) {
     const ds = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
@@ -563,8 +700,7 @@ function todayMod() {
 // weekly through the original 4. Daily seeds, boosts, twists, PINs and the
 // duel board all carry across games.
 const ROT_ANCHOR = Date.UTC(2026, 6, 13);   // Mon Jul 13 2026
-function daysSinceAnchor() {
-  const now = new Date();
+function daysSinceAnchor(now = new Date()) {
   return Math.floor((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - ROT_ANCHOR) / 86400000);
 }
 // Order interleaves steering / timing / chase / memory mechanics so
@@ -576,13 +712,18 @@ const WEEK_ORDER = ["gauntlet", "tunnel", "meteor", "laser"];   // legacy weekly
 const currentGame = () => {
   const forced = qs.get("game");            // ?game=tunnel -- testing/practice
   if (forced && GAMES[forced]) return GAMES[forced];
+  return gameForDate(new Date());
+};
+// The scheduled game for any calendar date (no ?game= override) -- the
+// champion reel names the game each past day actually ran.
+function gameForDate(at) {
   if (V2()) {
-    const i = daysSinceAnchor() % GAME_ORDER.length;
+    const i = daysSinceAnchor(at) % GAME_ORDER.length;
     return GAMES[GAME_ORDER[(i + GAME_ORDER.length) % GAME_ORDER.length]];
   }
-  const w = Math.floor(daysSinceAnchor() / 7) + 1;
+  const w = Math.floor(daysSinceAnchor(at) / 7) + 1;
   return GAMES[WEEK_ORDER[((w % 4) + 4) % 4]];
-};
+}
 
 /* ================= DAILY SEED ================= */
 const today = () => {
@@ -1502,6 +1643,7 @@ const GAMES = {
 };
 
 function takeHit(py) {
+  if (G.attract) return;          // reel footage: the course plays, nobody gets hit
   G.hearts--; G.inv = 1.2; G.shake = 14;
   if (G.combo >= 8) floatText(G.px, py - 30, "COMBO LOST", "#ff2ea6");
   G.combo = 0;
@@ -1513,6 +1655,7 @@ function takeHit(py) {
 // Near-miss reward: skimming a hazard without touching it pays points.
 // Each game decides what counts as a graze; the payout and juice live here.
 function graze(x, y, pts = 15) {
+  if (G.attract) return;
   G.grazePts += pts; G.grazes++;
   floatText(x, y, "GRAZE +" + pts, "#19e3ff");
 }
@@ -1520,10 +1663,12 @@ function floatText(x, y, txt, color) {
   G.floaters.push({ x: Math.max(40, Math.min(W - 40, x)), y, txt, color, life: 0.9 });
 }
 
-function courseReset(playerCfg, boost) {
-  G.rng = mulberry32(seedFromDate(today()));           // same course for everyone
-  G.mod = todayMod().id;                               // same twist for everyone
-  G.game = currentGame();                              // same game for everyone today
+function courseReset(playerCfg, boost, at) {
+  // `at` = {ds, mod, game} rebuilds a PAST day's course (champion reel
+  // footage); runs always pass nothing and get today's.
+  G.rng = mulberry32(seedFromDate(at ? at.ds : today())); // same course for everyone
+  G.mod = at ? at.mod : todayMod().id;                 // same twist for everyone
+  G.game = at ? at.game : currentGame();               // same game for everyone today
   G.t = 0; G.px = W/2; G.targetX = W/2;
   G.hearts = boost === "shield" ? 4 : 3;
   G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
@@ -1547,6 +1692,7 @@ function worldSpeed() {
 }
 
 function startRun() {
+  attractStop();
   const p = ROSTER.find(r => r.id === store.player);
   courseReset(p, G.pickedBoost || "shield");
   show("game");
@@ -1586,8 +1732,9 @@ function endRun(died) {
   document.getElementById("againBtn").disabled = !PREVIEW && runs >= MAX_RUNS;
   document.getElementById("againBtn").textContent = !PREVIEW && runs >= MAX_RUNS ? "NO RUNS LEFT" : "RUN AGAIN";
   show("results");
+  updateBadge();
   if (PREVIEW) refreshBoards();
-  else syncScore(Math.max(score, prev), runs).then(() => refreshBoards());
+  else syncScore(Math.max(score, prev), runs).then(() => { updateBadge(); refreshBoards(); });
 }
 
 function loop(ts) {
@@ -1702,6 +1849,7 @@ function draw(py) {
     cx.fillRect(0, 0, W, H);
   }
   cx.restore();
+  if (G.attract) return;          // reel footage shows the course, not a run
 
   // HUD
   cx.fillStyle = "#e8e6ff"; cx.font = "bold 15px Menlo, monospace"; cx.textAlign = "left";
@@ -1793,17 +1941,23 @@ async function syncScore(best, runs) {
 }
 
 async function fetchDays(n) {
-  if (!fsBase() || !store.room) return {};
-  const names = [];
+  const list = [];
   for (let i = 0; i < n; i++) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    const ds = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-    names.push(`projects/${CFG.firebase.projectId}/databases/(default)/documents/rooms/${store.room}/days/${ds}`);
+    list.push(`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`);
   }
+  return fetchDayList(list);
+}
+// same read for an explicit list of YYYYMMDD days (the reel's past weeks);
+// returns null (not {}) on a network/HTTP failure so callers can tell
+// "nobody played" from "couldn't check"
+async function fetchDayList(list, strict = false) {
+  if (!fsBase() || !store.room) return strict ? null : {};
+  const names = list.map(ds => `projects/${CFG.firebase.projectId}/databases/(default)/documents/rooms/${store.room}/days/${ds}`);
   try {
     const r = await fetch(`https://firestore.googleapis.com/v1/projects/${CFG.firebase.projectId}/databases/(default)/documents:batchGet?key=${CFG.firebase.apiKey}`,
       { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ documents: names }) });
-    if (!r.ok) return {};
+    if (!r.ok) return strict ? null : {};
     const out = {};
     for (const item of await r.json()) {
       if (!item.found) continue;
@@ -1816,7 +1970,7 @@ async function fetchDays(n) {
       }
     }
     return out;
-  } catch { return {}; }
+  } catch { return strict ? null : {}; }
 }
 
 /* ================= PLAYER PIN (anti-impersonation) ================= */
@@ -1895,6 +2049,7 @@ async function refreshBoards() {
   const days = await fetchDays(14);
   const t = days[today()] || {};
   for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0 };
+  updateBadge();
   if (store.player) { renderHome(); }   // runs-left may change once the board is known
   // fold in local best in case sync failed
   if (store.player && bestToday() > (t[store.player]?.score || 0)) {
@@ -2011,7 +2166,7 @@ async function share() {
 
 /* ================= UI WIRING ================= */
 function show(id) {
-  for (const s of ["home", "results", "roomgate", "pingate"]) document.getElementById(s).classList.add("hidden");
+  for (const s of ["home", "results", "roomgate", "pingate", "reel"]) document.getElementById(s).classList.add("hidden");
   if (id !== "game") {
     // wipe the last game frame: a subpixel seam at the stage edge let the
     // frozen run bleed through as a strip of neon walls (Felix, 2026-09-24)
@@ -2028,6 +2183,12 @@ function toast(msg) {
 function modDisplay() {
   const g = currentGame(), m = todayMod();
   return { name: g.modName[m.id] || m.name, desc: g.modDesc[m.id] || m.desc };
+}
+// game + twist label for a past date, as that day's home screen showed it
+function dayCard(at) {
+  const g = gameForDate(at), m = modForDate(at);
+  return { gameId: GAME_ORDER.find(k => GAMES[k] === g) || "gauntlet", game: g.name, mod: m.id,
+           twist: g.modName[m.id] || m.name };
 }
 function fitHome() {
   const home = document.getElementById("home"), fit = document.getElementById("homeFit");
@@ -2063,7 +2224,7 @@ function renderHome() {
   rosterEl.innerHTML = ROSTER.map(r =>
     `<button data-id="${r.id}" class="${store.player === r.id ? "sel" : ""}">${r.name}</button>`).join("");
   rosterEl.querySelectorAll("button").forEach(b => b.onclick = () => {
-    store.player = b.dataset.id; renderHome(); refreshBoards();
+    store.player = b.dataset.id; renderHome(); refreshBoards(); updateBadge(); pushBoot();
   });
   const boostsEl = document.getElementById("boosts");
   boostsEl.innerHTML = BOOSTS.map(b =>
@@ -2080,12 +2241,14 @@ function renderHome() {
   document.getElementById("runsLeft").textContent = !store.player ? ""
     : PREVIEW ? "PREVIEW MODE -- the new rules early, runs don't count"
     : `${MAX_RUNS - used} of ${MAX_RUNS} runs left today` + (bestToday() ? ` // best ${bestToday().toLocaleString()}` : "");
+  renderReelLine(); renderBadgeBtn();
   fitHome();
 }
 // last check against the family board, so another device's runs count too
 async function runsLeftOnBoard() {
   if (PREVIEW) return true;
   await pullMine(2500);
+  updateBadge();
   if (runsUsed() < MAX_RUNS) return true;
   renderHome(); show("home");
   toast("no runs left today -- all 3 used");
@@ -2104,8 +2267,426 @@ document.getElementById("shareBtn").onclick = share;
 document.getElementById("roomGo").onclick = () => {
   const v = document.getElementById("roomInput").value.trim().toLowerCase();
   if (v.length < 6) { toast("that code looks too short"); return; }
-  store.room = v; show("home"); renderHome(); refreshBoards();
+  store.room = v; show("home"); renderHome(); refreshBoards(); reelBoot(); pushBoot();
 };
+
+/* ================= HOME-SCREEN BADGE ================= */
+// Badge = runs left today (family-board truth via runsUsed()) + 1 while this
+// week's champion reel is unwatched on this device (Felix, 2026-09-24). The
+// server push (gauntlet push sender) sets the same number when the app is
+// closed; this keeps it honest whenever the app is open. Never throws.
+function updateBadge() {
+  try {
+    if (PREVIEW || REEL_PENDING || !("setAppBadge" in navigator)) return;
+    const left = store.player ? Math.max(0, MAX_RUNS - runsUsed()) : 0;
+    const n = left + (reelUnseen() ? 1 : 0);
+    const p = n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge();
+    if (p && p.catch) p.catch(() => {});
+  } catch {}
+}
+
+/* ================= PUSH OPT-IN (home-screen app only) ================= */
+const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+const pushCapable = () => !PREVIEW && isStandalone() && "PushManager" in window && "serviceWorker" in navigator
+  && "Notification" in window && !!CFG.vapidPublicKey && !!fsBase();
+function urlBase64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+function renderBadgeBtn() {
+  const b = document.getElementById("badgeBtn");
+  const want = pushCapable() && Notification.permission === "default" && !!store.player && !!store.room;
+  if (b.classList.contains("hidden") === want) { b.classList.toggle("hidden", !want); fitHome(); }
+}
+let swReg = null;
+if ("serviceWorker" in navigator && location.protocol !== "file:")
+  swReg = navigator.serviceWorker.register("sw.js").catch(() => null);
+// subscribe (or reuse) and store at rooms/{room}/push/{pid}.subs.<key>
+async function savePushSub() {
+  const pid = store.player, room = store.room;
+  if (!pid || !room || !swReg) return false;
+  try {
+    const reg = await Promise.race([
+      swReg.then(r => r && navigator.serviceWorker.ready),
+      new Promise(res => setTimeout(() => res(null), 8000))]);
+    if (!reg) return false;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(CFG.vapidPublicKey) });
+    const j = sub.toJSON(), keys = j.keys || {};
+    if (!j.endpoint || !keys.p256dh || !keys.auth) return false;
+    const key = "s" + (await sha256(j.endpoint)).slice(0, 16);
+    const mark = `${room}|${key}`;
+    const last = (safeGet("g2:pushSaved:" + pid) || "").split("#");
+    if (last[0] === mark && Date.now() - (+last[1] || 0) < 86400000) return true;   // saved today already
+    const url = `${fsBase()}/rooms/${encodeURIComponent(room)}/push/${pid}` +
+      `?updateMask.fieldPaths=subs.${key}&key=${CFG.firebase.apiKey}`;
+    const body = { fields: { subs: { mapValue: { fields: { [key]: { mapValue: { fields: {
+      endpoint: { stringValue: j.endpoint },
+      p256dh:   { stringValue: keys.p256dh },
+      auth:     { stringValue: keys.auth },
+      ts:       { integerValue: String(Date.now()) },
+    }}}}}}}};
+    const r = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) return false;
+    safeSet("g2:pushSaved:" + pid, mark + "#" + Date.now());
+    return true;
+  } catch { return false; }
+}
+document.getElementById("badgeBtn").onclick = async () => {
+  let perm = "default";
+  try { perm = await Notification.requestPermission(); } catch { perm = Notification.permission; }
+  renderBadgeBtn();
+  if (perm !== "granted") return;
+  const ok = await savePushSub();
+  toast(ok ? "badge on -- your runs left show on the icon" : "couldn't turn on the badge -- try again later");
+  updateBadge();
+};
+// heal a rotated endpoint: re-save quietly on every home-screen-app load
+function pushBoot() {
+  renderBadgeBtn();
+  if (pushCapable() && Notification.permission === "granted" && store.player && store.room) savePushSub();
+}
+
+/* ================= WEEKLY CHAMPION REEL ================= */
+// Champion = same rule as scripts/gauntlet_weekly.py (the Monday family text):
+// most DAILY WINS over Mon-Sun, total of daily bests breaks ties. Every number
+// on the reel comes from the Firestore day docs -- nothing is invented.
+const ACCENT = { papa: "#22e5ff", adelina: "#ff2d95", fd: "#7dff6a", oliver: "#ff9f1c", gray: "#b98cff" };
+const REEL_WEEKS = 8;                        // lookback for the reign streak
+const pname = pid => ROSTER.find(r => r.id === pid)?.name || pid.toUpperCase();
+const fmt = n => Number(n || 0).toLocaleString("en-US");
+const addDays = (d, k) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + k); return x; };
+const reelSeenKey = () => "g2:reelSeen:" + dstr(mondayOf(new Date()));
+let REELDATA = null;
+let REEL_PENDING = false;                    // hold the badge until we know if a reel is unseen                         // { monday: current-week YYYYMMDD, champ: {...} | null }
+function reelUnseen() {
+  return !!(REELDATA && REELDATA.champ && REELDATA.monday === dstr(mondayOf(new Date())) && !safeGet(reelSeenKey()));
+}
+// one Mon-Sun week -> standings, or null if nobody played
+function weekResult(days, mon) {
+  const totals = {}, wins = {}, dayWins = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(mon, i), ds = dstr(d), sc = days[ds];
+    if (!sc || !Object.keys(sc).length) continue;
+    const ent = Object.entries(sc);
+    for (const [pid, v] of ent) totals[pid] = (totals[pid] || 0) + (v.score || 0);
+    const sorted = ent.slice().sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
+    const [wp, wv] = sorted[0];
+    wins[wp] = (wins[wp] || 0) + 1;
+    dayWins.push({ ds, date: d, pid: wp, score: wv.score || 0,
+                   second: sorted[1] ? { pid: sorted[1][0], score: sorted[1][1].score || 0 } : null,
+                   players: ent.length, all: sc });
+  }
+  if (!Object.keys(totals).length) return null;
+  const ranked = Object.entries(totals).map(([pid, total]) => ({ pid, total, wins: wins[pid] || 0 }))
+    .sort((a, b) => (b.wins - a.wins) || (b.total - a.total));
+  return { mon, ranked, dayWins };
+}
+function buildChampion(days, curMon) {
+  const lastMon = addDays(curMon, -7);
+  const wk = weekResult(days, lastMon);
+  if (!wk) return null;
+  const top = wk.ranked[0], pid = top.pid;
+  // reign: consecutive prior weeks this player also won (an empty week breaks it)
+  let reign = 1;
+  for (let w = 2; w <= REEL_WEEKS; w++) {
+    const r = weekResult(days, addDays(curMon, -7 * w));
+    if (!r || r.ranked[0].pid !== pid) break;
+    reign++;
+  }
+  // their best single daily score of the week (any day, won or not)
+  let bestRun = null;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(lastMon, i), v = days[dstr(d)]?.[pid];
+    if (v && (!bestRun || v.score > bestRun.score)) bestRun = { date: d, score: v.score };
+  }
+  const runner = wk.ranked[1] || null;
+  return {
+    pid, name: pname(pid), wins: top.wins, total: top.total, reign, reignCapped: reign >= REEL_WEEKS,
+    weekFrom: lastMon, weekTo: addDays(lastMon, 6),
+    highlights: wk.dayWins.filter(x => x.pid === pid),
+    bestRun, ranked: wk.ranked.slice(0, 3), runner, players: wk.ranked.length,
+  };
+}
+// fetch the last REEL_WEEKS full weeks; null = couldn't check
+async function loadReel() {
+  const curMon = mondayOf(new Date()), monKey = dstr(curMon);
+  if (REELDATA && REELDATA.monday === monKey) return REELDATA;
+  const list = [];
+  for (let i = 1; i <= REEL_WEEKS * 7; i++) list.push(dstr(addDays(curMon, -i)));
+  const days = await fetchDayList(list, true);
+  if (!days) return null;
+  REELDATA = { monday: monKey, champ: buildChampion(days, curMon) };
+  renderReelLine(); updateBadge();
+  return REELDATA;
+}
+function renderReelLine() {
+  const el = document.getElementById("reelline");
+  const c = REELDATA && REELDATA.monday === dstr(mondayOf(new Date())) ? REELDATA.champ : null;
+  const html = c ? `LAST WEEK'S CHAMP: <b>${c.name}</b> // WATCH` : "";
+  if (el.innerHTML !== html) { el.innerHTML = html; fitHome(); }
+}
+document.getElementById("reelline").onclick = () => { if (REELDATA?.champ) playReel(REELDATA.champ); };
+
+const WD = d => d.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
+const MD = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
+const CROWN = `<svg class="r-crown" viewBox="0 0 96 64" aria-hidden="true"><path d="M6 20 L26 40 L48 6 L70 40 L90 20 L82 58 L14 58 Z" fill="#ffd23f" stroke="#fff3b0" stroke-width="2" stroke-linejoin="round"/><rect x="14" y="50" width="68" height="8" fill="#ffb300"/><circle cx="48" cy="6" r="5" fill="#ff2d95"/><circle cx="6" cy="20" r="4" fill="#22e5ff"/><circle cx="90" cy="20" r="4" fill="#22e5ff"/><circle cx="34" cy="50" r="3" fill="#ff2d95"/><circle cx="48" cy="50" r="3" fill="#22e5ff"/><circle cx="62" cy="50" r="3" fill="#ff2d95"/></svg>`;
+function reelCards(c) {
+  const cards = [];
+  cards.push({ dur: 3800, fx: "fireworks", html:
+    `<div class="rc"><div class="r-kick">LAST WEEK'S CHAMPION</div>
+     <div class="r-week">${MD(c.weekFrom)} - ${MD(c.weekTo)}</div>${CROWN}
+     <div class="r-name flick">${c.name}</div>
+     <div class="r-sub">${c.wins} DAILY WIN${c.wins === 1 ? "" : "S"} // ${fmt(c.total)} PTS</div></div>` });
+  const hl = c.highlights, dur = hl.length > 4 ? 2500 : 2900;
+  hl.forEach((h, i) => {
+    const dc = dayCard(h.date);
+    const beat = h.second
+      ? `BEAT <b>${pname(h.second.pid)}</b> BY ${fmt(h.score - h.second.score)}`
+      : `ONLY ONE WHO RAN THAT DAY`;
+    cards.push({ dur, footage: { ds: h.ds, date: h.date, gameId: dc.gameId }, html:
+      `<div class="rc"><div class="r-kick">HIGHLIGHT ${i + 1} OF ${hl.length}</div>
+       <div class="r-day">${WD(h.date)}</div>
+       <div class="r-game">${dc.game}</div>
+       <div><span class="r-pill">TWIST // ${dc.twist}</span></div>
+       <div class="r-score" data-count="${h.score}">${fmt(h.score)}</div>
+       <div class="r-beat">${beat}</div></div>` });
+  });
+  if (!hl.length) cards.push({ dur: 3200, fx: "coins", html:
+    `<div class="rc"><div class="r-kick">THE HIGHLIGHT</div>
+     <div class="r-big mag" style="margin-top:14px">NEVER WON<br>A DAY</div>
+     <div class="r-big gold" style="margin-top:10px">WON THE WEEK</div>
+     <div class="r-sub cyan">${fmt(c.total)} PTS ON CONSISTENCY</div></div>` });
+  if (c.bestRun) {
+    const dc = dayCard(c.bestRun.date);
+    cards.push({ dur: 3100, fx: "coins", html:
+      `<div class="rc"><div class="r-kick">BEST RUN OF THE WEEK</div>
+       <div class="r-score" style="font-size:min(19vw,80px)" data-count="${c.bestRun.score}">${fmt(c.bestRun.score)}</div>
+       <div class="r-game">${dc.game}</div>
+       <div class="r-line">${WD(c.bestRun.date)} // ${dc.twist}</div></div>` });
+  }
+  const rows = c.ranked.map((r, i) =>
+    `<div class="r-row${i === 0 ? " first" : ""}"><span class="rk">${i + 1}</span><span class="nm">${pname(r.pid)}</span>` +
+    `<span class="wn">${r.wins}W</span><span class="pt">${fmt(r.total)}</span></div>`).join("");
+  let margin = "NOBODY ELSE PLAYED";
+  if (c.runner) margin = c.runner.wins < c.wins
+    ? `WON BY ${c.wins - c.runner.wins} DAILY WIN${c.wins - c.runner.wins === 1 ? "" : "S"}`
+    : `TIED ON WINS // WON BY ${fmt(c.total - c.runner.total)} PTS`;
+  cards.push({ dur: 3800, html:
+    `<div class="rc"><div class="r-kick">FINAL STANDINGS</div><div class="r-stand">${rows}</div>
+     <div class="r-line">${margin}</div>
+     <div class="r-line" style="margin-top:6px;color:var(--dim)">W = DAILY WINS // PTS = DAILY BESTS</div></div>` });
+  if (c.reign >= 2) cards.push({ dur: 2800, fx: "fireworks", html:
+    `<div class="rc">${CROWN.replace('class="r-crown"', 'class="r-crown sm"')}<div class="r-name" style="font-size:min(12vw,50px)">${c.name}</div>
+     <div class="r-big gold" style="margin-top:14px">${c.reign}${c.reignCapped ? "+" : ""} WEEKS<br>IN A ROW</div></div>` });
+  cards.push({ dur: 2900, fx: "fireworks", html:
+    `<div class="rc"><div class="r-go"><span>NEW WEEK.</span><span>3 RUNS.</span><span>GO.</span></div></div>` });
+  return cards;
+}
+
+const RM = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const REEL = { on: false, i: 0, cards: [], tmr: null, t0: 0 };
+function playReel(c, onDone) {
+  if (!c || REEL.on) return;
+  const el = document.getElementById("reel");
+  REEL.on = true; REEL.i = -1; REEL.cards = reelCards(c); REEL.t0 = performance.now(); REEL.done = onDone;
+  el.style.setProperty("--acc", ACCENT[c.pid] || "#22e5ff");
+  document.getElementById("reelProg").innerHTML = REEL.cards.map(() => "<i><b></b></i>").join("");
+  show("reel");
+  fxStart();
+  reelNext();
+}
+function reelNext() {
+  clearTimeout(REEL.tmr);
+  REEL.i++;
+  if (REEL.i >= REEL.cards.length) return endReel();
+  const card = REEL.cards[REEL.i], el = document.getElementById("reel");
+  document.querySelectorAll("#reelProg i").forEach((b, k) => {
+    b.className = k < REEL.i ? "done" : k === REEL.i ? "on" : "";
+    if (k === REEL.i) b.style.setProperty("--dur", card.dur + "ms");
+  });
+  document.getElementById("reelStage").innerHTML = card.html;
+  FX.mode = card.fx || "";
+  if (card.fx === "fireworks") FX.burstNow = 3;
+  if (card.footage) { attractStart(card.footage); el.classList.add("footage"); }
+  else { attractStop(); el.classList.remove("footage"); }
+  document.querySelectorAll("#reelStage [data-count]").forEach(countUp);
+  REEL.tmr = setTimeout(reelNext, card.dur);
+}
+function countUp(n) {
+  const to = +n.dataset.count;
+  if (RM() || !to) { n.textContent = fmt(to); return; }
+  const t0 = performance.now(), D = 1100;
+  const tick = now => {
+    if (!n.isConnected) return;
+    const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
+    n.textContent = fmt(Math.round(to * e));
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  n.textContent = "0"; requestAnimationFrame(tick);
+}
+function endReel() {
+  if (!REEL.on) return;
+  clearTimeout(REEL.tmr);
+  REEL.on = false;
+  attractStop(); fxStop();
+  document.getElementById("reel").classList.remove("footage");
+  if (!PREVIEW && REELDATA?.champ) safeSet(reelSeenKey(), "1");
+  show("home"); renderHome(); updateBadge();
+  const cb = REEL.done; REEL.done = null; cb && cb();
+}
+// tap anywhere skips (ignore the first moments so the opening tap can't)
+document.getElementById("reel").addEventListener("click", () => {
+  if (REEL.on && performance.now() - REEL.t0 > 450) endReel();
+});
+
+// Particles: fireworks + coin shower in the game palette, on their own canvas.
+const FX = { cv: null, cx: null, parts: [], raf: 0, mode: "", burstNow: 0, last: 0, acc: 0 };
+function fxStart() {
+  if (RM()) return;
+  FX.cv = document.getElementById("reelFx"); FX.cx = FX.cv.getContext("2d");
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  FX.w = FX.cv.clientWidth; FX.h = FX.cv.clientHeight;
+  FX.cv.width = FX.w * dpr; FX.cv.height = FX.h * dpr; FX.cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  FX.parts = []; FX.last = performance.now(); FX.acc = 0;
+  cancelAnimationFrame(FX.raf); FX.raf = requestAnimationFrame(fxTick);
+}
+function fxStop() { cancelAnimationFrame(FX.raf); FX.raf = 0; FX.parts = []; if (FX.cx) FX.cx.clearRect(0, 0, FX.w, FX.h); }
+function fxBurst() {
+  const pal = ["#22e5ff", "#ff2d95", "#ffd23f", getComputedStyle(document.getElementById("reel")).getPropertyValue("--acc").trim() || "#fff"];
+  const x = FX.w * (0.15 + Math.random() * 0.7), y = FX.h * (0.12 + Math.random() * 0.35);
+  const col = pal[Math.floor(Math.random() * pal.length)], n = 64;
+  for (let i = 0; i < n; i++) {
+    const a = i / n * Math.PI * 2, v = 140 + Math.random() * 170;
+    FX.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 120, life: 1.1 + Math.random() * .5, max: 1.6, col, r: 2.2 });
+  }
+}
+function fxCoin() {
+  FX.parts.push({ x: Math.random() * FX.w, y: -12, vx: (Math.random() - .5) * 30, vy: 120 + Math.random() * 120,
+                  g: 60, life: 6, max: 6, col: "#ffd23f", r: 4 + Math.random() * 3, coin: true, spin: Math.random() * 6 });
+}
+function fxTick(now) {
+  const dt = Math.min(0.05, (now - FX.last) / 1000); FX.last = now;
+  FX.acc += dt;
+  if (FX.burstNow > 0 && FX.parts.length < 600) { fxBurst(); FX.burstNow--; }
+  if (FX.mode === "fireworks" && FX.acc > 0.42) { FX.acc = 0; fxBurst(); }
+  if (FX.mode === "coins" && FX.acc > 0.09) { FX.acc = 0; fxCoin(); }
+  const c = FX.cx; c.clearRect(0, 0, FX.w, FX.h);
+  for (let i = FX.parts.length - 1; i >= 0; i--) {
+    const p = FX.parts[i];
+    p.life -= dt; if (p.life <= 0 || p.y > FX.h + 20) { FX.parts.splice(i, 1); continue; }
+    p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (!p.coin) { p.vx *= 0.985; p.vy *= 0.985; }
+    c.globalAlpha = p.coin ? 0.9 : Math.min(1, p.life / p.max * 1.6);
+    c.shadowColor = p.col; c.shadowBlur = p.coin ? 10 : 8; c.fillStyle = p.col;
+    c.beginPath();
+    if (p.coin) { p.spin += dt * 5; c.ellipse(p.x, p.y, p.r * Math.abs(Math.cos(p.spin)) + 1, p.r, 0, 0, 7); }
+    else c.arc(p.x, p.y, p.r, 0, 7);
+    c.fill();
+  }
+  c.globalAlpha = 1; c.shadowBlur = 0;
+  FX.raf = requestAnimationFrame(fxTick);
+}
+
+// Attract mode: that DAY'S real seeded course (the engine's own generator for
+// that date + game + twist) scrolls behind the card with an auto-pilot orb.
+// It is the course, not the champion's run: no hits, no score, no HUD.
+const ATTRACT = { raf: 0, last: 0 };
+function attractStart(f) {
+  attractStop();
+  if (G.running) return;
+  G.attract = true;
+  courseReset({ speed: 1, mult: 1 }, "", { ds: f.ds, mod: modForDate(f.date).id, game: GAMES[f.gameId] });
+  // pre-roll a few seconds so the screen is already full of course
+  for (let k = 0; k < 240; k++) attractStep(1 / 60);
+  G.sparks = []; G.floaters = [];
+  draw(H * 0.78);
+  if (RM()) return;                            // reduced motion: one still frame
+  ATTRACT.last = performance.now();
+  const tick = now => {
+    if (!G.attract) return;
+    attractStep(Math.min(0.05, (now - ATTRACT.last) / 1000)); ATTRACT.last = now;
+    draw(H * 0.78);
+    ATTRACT.raf = requestAnimationFrame(tick);
+  };
+  ATTRACT.raf = requestAnimationFrame(tick);
+}
+function attractStep(dt) {
+  const py = H * 0.78;
+  G.t = Math.min(G.t + dt, RUN_SECS() - 0.1);
+  // auto-pilot: aim at the next gap / tunnel centre / coin above the orb
+  let tx = null;
+  if (G.obstacles && G.obstacles.length) {
+    const o = G.obstacles.filter(o => o.y < py - 10 && o.y > py - 320).sort((a, b) => b.y - a.y)[0];
+    if (o && o.gapW) tx = o.gapX + o.gapW / 2;
+  }
+  if (tx === null && G.path && G.path.length && G.tunnelW) {
+    const seg = G.path[Math.max(0, Math.min(G.path.length - 1, Math.round((G.traveled - py + 90) / 16)))];
+    if (seg) tx = seg.x;
+  }
+  if (tx === null) {
+    const c = G.coinDots.filter(c => !c.got && c.y < py && c.y > py - 300).sort((a, b) => b.y - a.y)[0];
+    tx = c ? c.x : W / 2 + Math.sin(G.t * 0.9) * 110;
+  }
+  G.targetX = Math.max(14, Math.min(W - 14, tx));
+  G.px += (G.targetX - G.px) * Math.min(1, dt * 6);
+  const vs = worldSpeed() * dt;
+  for (const c of G.coinDots) {
+    c.y += vs;
+    if (!c.got && Math.hypot(G.px - c.x, py - c.y) < 24) { c.got = true; burst(c.x, c.y, "#ffc93c"); }
+  }
+  G.game.update(dt, py, vs);
+}
+function attractStop() {
+  cancelAnimationFrame(ATTRACT.raf); ATTRACT.raf = 0;
+  if (G.attract) { G.attract = false; G.obstacles = []; G.coinDots = []; G.things = []; G.bullets = []; cx.clearRect(0, 0, W, H); }
+}
+
+// First open of the week: the reel plays BEFORE the home screen.
+async function reelBoot() {
+  if (!store.room) return;
+  const seen = !!safeGet(reelSeenKey()), none = safeGet("g2:reelNone:" + dstr(mondayOf(new Date())));
+  const auto = !PREVIEW && !seen && !none;
+  const settle = p => Promise.race([p, new Promise(r => setTimeout(r, 5000))])
+    .finally(() => { REEL_PENDING = false; updateBadge(); });
+  REEL_PENDING = !PREVIEW && !seen;
+  if (!auto) { settle(loadReel()); return; }
+  // hold the home screen behind a short loading card while last week loads
+  const el = document.getElementById("reel");
+  show("reel");
+  document.getElementById("reelProg").innerHTML = "";
+  document.getElementById("reelStage").innerHTML = `<div class="r-load">LOADING LAST WEEK</div>`;
+  const data = await Promise.race([loadReel(), new Promise(r => setTimeout(() => r(undefined), 4000))]);
+  REEL_PENDING = false; updateBadge();
+  if (data && data.champ && !REEL.on && !G.running) { playReel(data.champ); return; }
+  if (data && !data.champ) safeSet("g2:reelNone:" + data.monday, "1");   // nobody played last week
+  if (!REEL.on && !el.classList.contains("hidden")) { show("home"); renderHome(); }
+}
+
+// Day rollover + coming back to the app: refresh counts, badge, new week's reel.
+let bootDay = today();
+function checkRollover() {
+  if (today() === bootDay || G.running) return false;
+  bootDay = today();
+  if (!document.getElementById("home").classList.contains("hidden")) renderHome();
+  refreshBoards(); updateBadge();
+  if (REELDATA && REELDATA.monday !== dstr(mondayOf(new Date()))) {
+    REELDATA = null; renderReelLine();
+    if (!document.getElementById("home").classList.contains("hidden")) reelBoot(); else loadReel();
+  }
+  return true;
+}
+setInterval(checkRollover, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (!checkRollover() && !G.running) pullMine().then(() => {
+    updateBadge();
+    if (!document.getElementById("home").classList.contains("hidden")) renderHome();
+  });
+  else updateBadge();
+});
 
 /* ================= BOOT ================= */
 // ?player=papa|adelina|fd|oliver|gray pre-picks the player, so each family
@@ -2113,7 +2694,8 @@ document.getElementById("roomGo").onclick = () => {
 const qp = (qs.get("player") || "").toLowerCase();
 if (ROSTER.some(r => r.id === qp)) store.player = qp;
 if (!store.room) { show("roomgate"); }
-else { show("home"); renderHome(); refreshBoards(); }
+else { show("home"); renderHome(); refreshBoards(); reelBoot(); }
+pushBoot(); updateBadge();
 </script>
 </body>
 </html>
