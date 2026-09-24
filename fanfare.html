@@ -19,12 +19,11 @@
 </style></head>
 <body>
   <h1><span class="c">FANFARE</span> <span class="m">PICK</span></h1>
-  <div class="sub">SAME LEGEND FANFARE. ONLY THE HERO MELODY CHANGES.</div>
-  <button data-f="F1" class="gold"><b>1 // CLASSIC</b><span>the one you heard: G-C-D-E, hold, then a falling answer</span></button>
-  <button data-f="F2" class="gold"><b>2 // SUPERHERO</b><span>leaps up C-E-G to a high held C, then glides down</span></button>
-  <button data-f="F3" class="gold"><b>3 // MARCH</b><span>dotted "ta-da-DAA" drumline rhythm, proud and stompy</span></button>
-  <button data-f="F4" class="gold"><b>4 // SOARING</b><span>big movie leaps, long notes, the most epic feel</span></button>
-  <button data-f="F5" class="gold"><b>5 // ARCADE QUEST</b><span>fast chiptune run up the scale, video-game hero</span></button>
+  <div class="sub">YOUR TWO FAVORITES + TWO BLENDS</div>
+  <button data-f="F4" class="gold"><b>4 // SOARING</b><span>big movie leaps, long notes</span></button>
+  <button data-f="F5" class="gold"><b>5 // ARCADE QUEST</b><span>fast chiptune run up the scale</span></button>
+  <button data-f="F6" class="gold" style="border-color:#ff2d95;box-shadow:0 0 22px rgba(255,45,149,.45)"><b>A // QUEST TO THE SKY</b><span>5's fast run up, flying into 4's big held high note and soaring finish</span></button>
+  <button data-f="F7" class="gold" style="border-color:#ff2d95;box-shadow:0 0 22px rgba(255,45,149,.45)"><b>B // SKY TO THE QUEST</b><span>4's big leaps up, then 5's fast arcade ending</span></button>
   <div class="note">Phone off silent. The name slams in on the big hit about 2 seconds in; the melody right after it is what changes.</div>
 <script>
 let ctx = null, master = null;
@@ -122,6 +121,8 @@ const THEMES = {
   F2: [[2, 72, .5], [2.5, 76, .5], [3, 79, 1], [4, 84, 1.5], [5.5, 83, .25], [5.75, 81, .25], [6, 79, .5], [6.5, 77, .5], [7, 76, .5], [7.5, 74, .5]],
   F3: [[2, 67, .75], [2.75, 67, .25], [3, 72, 1], [4, 72, .75], [4.75, 74, .25], [5, 77, 1], [6, 79, .75], [6.75, 77, .25], [7, 76, .5], [7.5, 74, .5]],
   F4: [[2, 72, 1], [3, 79, 1], [4, 84, 2], [6, 81, 1], [7, 79, .5], [7.5, 74, .5]],
+  F6: [[2, 72, .25], [2.25, 74, .25], [2.5, 76, .25], [2.75, 79, .25], [3, 81, .5], [3.5, 83, .5], [4, 84, 2], [6, 81, 1], [7, 79, .5], [7.5, 74, .5]],
+  F7: [[2, 72, 1], [3, 79, 1], [4, 84, 1], [5, 81, .5], [5.5, 77, .5], [6, 79, .5], [6.5, 83, .5], [7, 79, .5], [7.5, 74, .5]],
   F5: [[2, 72, .25], [2.25, 74, .25], [2.5, 76, .25], [2.75, 79, .25], [3, 81, .5], [3.5, 79, .5], [4, 84, 1], [5, 81, .5], [5.5, 77, .5], [6, 79, .5], [6.5, 83, .5], [7, 79, .5], [7.5, 74, .5]],
 };
 // harmony a diatonic third below in C major (every theme note is in the scale)
@@ -275,7 +276,7 @@ const FAN = {
     return 5 * bar;
   },
   F1: t => FAN.F(t, THEMES.F1), F2: t => FAN.F(t, THEMES.F2), F3: t => FAN.F(t, THEMES.F3),
-  F4: t => FAN.F(t, THEMES.F4), F5: t => FAN.F(t, THEMES.F5),
+  F4: t => FAN.F(t, THEMES.F4), F5: t => FAN.F(t, THEMES.F5), F6: t => FAN.F(t, THEMES.F6), F7: t => FAN.F(t, THEMES.F7),
   // what the reel plays now
   OLD(t) {
     const tone = (f, s, d, type, pk) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.value = f;
