@@ -548,17 +548,23 @@
 const CFG = window.GAUNTLET_CONFIG || { firebase: null, room: "" };
 // Adults (Papi, Adelina) + Felix D play full difficulty; the younger boys run
 // easier (Felix's call 2026-07-16). speed scales the whole world (lower =
-// slower everywhere, more reaction time across all 14 games); mult keeps their
-// easier runs competitive on the shared family board. Oliver's is lighter than
-// Grayson's since he's older. Blanket handicap was retired 2026-07-12; this is
-// the per-kid version Felix asked back on.
+// slower everywhere, more reaction time across all 14 games); mult is the
+// board handicap. Blanket handicap was retired 2026-07-12; per-kid came back
+// 2026-07-16.
+// 2026-09-25 recalibration (Felix: "adjust the handicaps for everyone based on
+// their history"): mults re-fit from every shared day on the family board so
+// each player is roughly 50/50 head to head with Felix D (the scratch player,
+// 1.00). Speeds unchanged. Day-gated: mult25 applies from Sep 25 so the Sep 24
+// board stays on one scale.
+const HCAP_FROM = "20260925";
 const ROSTER = [
-  { id: "papa",   name: "PAPI",    speed: 1.00, mult: 1.00 },
-  { id: "adelina",name: "ADELINA", speed: 1.00, mult: 1.00 },
-  { id: "fd",     name: "FELIX D", speed: 1.00, mult: 1.00 },
-  { id: "oliver", name: "OLIVER",  speed: 0.88, mult: 1.55 },
-  { id: "gray",   name: "GRAYSON", speed: 0.60, mult: 2.15 },
+  { id: "papa",   name: "PAPI",    speed: 1.00, mult: 1.00, mult25: 1.40 },
+  { id: "adelina",name: "ADELINA", speed: 1.00, mult: 1.00, mult25: 1.95 },
+  { id: "fd",     name: "FELIX D", speed: 1.00, mult: 1.00, mult25: 1.00 },
+  { id: "oliver", name: "OLIVER",  speed: 0.88, mult: 1.55, mult25: 2.00 },
+  { id: "gray",   name: "GRAYSON", speed: 0.60, mult: 2.15, mult25: 1.50 },
 ];
+const multFor = c => (c.mult25 != null && today() >= HCAP_FROM) ? c.mult25 : c.mult;
 const BOOSTS = [
   { id: "shield", name: "SHIELD", desc: "+1 hit" },
   { id: "magnet", name: "MAGNET", desc: "pulls coins" },
@@ -1874,7 +1880,7 @@ function courseReset(playerCfg, boost, at) {
   G.combo = 0; G.bestCombo = 0; G.coinPts = 0;
   G.grazePts = 0; G.grazes = 0; G.grazeTimer = 0;
   G.traveled = 0;
-  G.speedScale = playerCfg.speed; G.mult = playerCfg.mult;
+  G.speedScale = playerCfg.speed; G.mult = multFor(playerCfg);
   G.boost = boost; G.slow = boost === "slowmo" ? 0.9 : 1; G.magnet = boost === "magnet";
   G.barCount = 0;
   G.game.reset();
@@ -2940,7 +2946,7 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20260924-ptr";
+const BUILD = "20260925-hcap";
 const PTR = { y0: null, x0: 0, d: 0, busy: false, fit: null };
 const PTR_GO = 64, PTR_MAX = 110;
 function ptrScreen() {
