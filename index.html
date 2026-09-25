@@ -556,6 +556,11 @@ const CFG = window.GAUNTLET_CONFIG || { firebase: null, room: "" };
 // each player is roughly 50/50 head to head with Felix D (the scratch player,
 // 1.00). Speeds unchanged. Day-gated: mult25 applies from Sep 25 so the Sep 24
 // board stays on one scale.
+// 2026-09-25 AUTO-ADJUST (Felix: "yea" to weekly): scripts/gauntlet_handicap.py
+// re-fits the mults every Sunday 11:50pm CT and publishes them to
+// rooms/{room}/meta/handicap {hist:[{from,mult}]} for the week starting Monday.
+// multFor() uses the newest entry with from <= today (cached in localStorage
+// for offline); the values below are only the fallback. Speeds stay manual.
 const HCAP_FROM = "20260925";
 const ROSTER = [
   { id: "papa",   name: "PAPI",    speed: 1.00, mult: 1.00, mult25: 1.40 },
@@ -564,7 +569,13 @@ const ROSTER = [
   { id: "oliver", name: "OLIVER",  speed: 0.88, mult: 1.55, mult25: 2.00 },
   { id: "gray",   name: "GRAYSON", speed: 0.60, mult: 2.15, mult25: 1.50 },
 ];
-const multFor = c => (c.mult25 != null && today() >= HCAP_FROM) ? c.mult25 : c.mult;
+let HCAP = (() => { try { return JSON.parse(safeGet("g:hcap") || "[]"); } catch { return []; } })();
+const multFor = c => {
+  const e = HCAP.filter(h => h.from <= today() && typeof h.mult?.[c.id] === "number")
+                .sort((a, b) => a.from < b.from ? 1 : -1)[0];
+  if (e) return e.mult[c.id];
+  return (c.mult25 != null && today() >= HCAP_FROM) ? c.mult25 : c.mult;
+};
 const BOOSTS = [
   { id: "shield", name: "SHIELD", desc: "+1 hit" },
   { id: "magnet", name: "MAGNET", desc: "pulls coins" },
@@ -2251,7 +2262,24 @@ async function ensurePin(pid) {
 
 /* ================= LEADERBOARD ================= */
 let healedThisLoad = false;
+// weekly handicaps from the family board (see multFor); failures keep the cache
+async function pullHandicap() {
+  if (!fsBase() || !store.room) return;
+  try {
+    const r = await fetch(`${fsBase()}/rooms/${encodeURIComponent(store.room)}/meta/handicap?key=${CFG.firebase.apiKey}`, { cache: "no-store" });
+    if (!r.ok) return;
+    const vals = (await r.json()).fields?.hist?.arrayValue?.values || [];
+    const hist = vals.map(v => {
+      const f = v.mapValue?.fields || {}, m = {};
+      for (const [pid, x] of Object.entries(f.mult?.mapValue?.fields || {}))
+        m[pid] = parseFloat(x.doubleValue ?? x.integerValue);
+      return { from: f.from?.stringValue || "", mult: m };
+    }).filter(h => /^[0-9]{8}$/.test(h.from));
+    if (hist.length) { HCAP = hist; safeSet("g:hcap", JSON.stringify(hist)); }
+  } catch {}
+}
 async function refreshBoards() {
+  pullHandicap();
   const days = await fetchDays(14);
   const t = days[today()] || {};
   for (const [pid, v] of Object.entries(t)) SRV[`${today()}:${pid}`] = { score: v.score || 0, runs: v.runs || 0, bonus: v.bonus || 0, reel: v.reel || 0 };
@@ -2946,7 +2974,7 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20260925-hcap";
+const BUILD = "20260925-hcap-auto";
 const PTR = { y0: null, x0: 0, d: 0, busy: false, fit: null };
 const PTR_GO = 64, PTR_MAX = 110;
 function ptrScreen() {
