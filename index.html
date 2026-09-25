@@ -2955,8 +2955,12 @@ function checkRollover() {
   return true;
 }
 setInterval(checkRollover, 30000);
+// Leaving the app: stamp the badge again on the way out. The results-screen
+// set can sit unpainted on the icon until the next open (Felix, 2026-09-25:
+// icon read 3 after a run left him 2); the backgrounding set is the one iOS shows.
+addEventListener("pagehide", updateBadge);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") { updateBadge(); return; }
   if (!checkRollover() && !G.running) {
     pullMine().then(() => {
       updateBadge();
