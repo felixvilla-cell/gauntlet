@@ -29,12 +29,24 @@
     display: flex; flex-direction: column;
     padding: max(6px, env(safe-area-inset-top)) 0 env(safe-area-inset-bottom);
   }
-  header { flex: none; text-align: center; padding: 2px 8px 6px; }
-  .tag { font-size: 11px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
+  header { flex: none; text-align: center; padding: 2px 8px 4px; }
+  header.hidden { display: none; }        /* collapsed during a run + on results: play area gets the space */
+  .tag { font-size: 10px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
   .tag b { color: var(--cyan); letter-spacing: 3px; text-shadow: 0 0 8px var(--cyan); }
-  .picker { display: flex; gap: 6px; justify-content: center; margin-top: 6px; }
+  /* single scrollable row -- 14 games never push layout height, just scroll sideways */
+  .picker {
+    display: flex; gap: 6px; margin-top: 8px; padding: 0 8px 4px; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+    /* .over centers children on their intrinsic size -- without a hard width
+       the row's true (way-wider-than-the-phone) content width wins and the
+       parent just centers that oversized box, clipping both edges instead of
+       giving this element its own scrollable viewport. */
+    width: 100%; max-width: 100%;
+  }
+  .picker::-webkit-scrollbar { display: none; }
   .picker button {
-    flex: 1; max-width: 92px; padding: 7px 2px; font: inherit; font-size: 10px; letter-spacing: 1px;
+    flex: none; width: 76px; padding: 7px 2px; font: inherit; font-size: 9.5px; letter-spacing: .5px;
     color: var(--ink); background: var(--panel); border: 1px solid #2a2650; border-radius: 8px; cursor: pointer;
   }
   .picker button.on { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px rgba(255,201,60,.35); text-shadow: 0 0 6px rgba(255,201,60,.6); }
@@ -67,6 +79,20 @@
   .score { font-size: 44px; color: var(--gold); letter-spacing: 2px; text-shadow: 0 0 14px rgba(255,201,60,.6); }
   .detail { font-size: 11px; color: var(--dim); line-height: 1.8; letter-spacing: 1px; }
   .hidden { display: none !important; }
+  /* tall screens (his phone: 402x874 / 375x667 both clear this): spread out and
+     use the space instead of a cramped middle stack -- same idea as index.html's
+     own results screen. */
+  @media (min-height: 700px) {
+    .over { gap: 22px; }
+    .over h1 { font-size: 38px; }
+    .over .how { font-size: 14px; }
+    .over .twist { font-size: 13px; }
+    .score { font-size: 68px; }
+    .detail { font-size: 13px; line-height: 2; }
+    .bigbtn { padding: 18px 58px; font-size: 21px; margin-top: 10px; }
+    .picker { margin-top: 14px; gap: 8px; }
+    .picker button { width: 84px; padding: 9px 2px; font-size: 10.5px; }
+  }
   #rotate {
     position: fixed; inset: 0; z-index: 60; display: none; flex-direction: column; align-items: center;
     justify-content: center; gap: 18px; background: var(--bg); text-align: center; letter-spacing: 3px;
@@ -90,14 +116,8 @@
 </head>
 <body>
 <div id="app">
-  <header>
+  <header id="chrome">
     <div class="tag"><b>3D PREVIEW</b> -- practice only, nothing counts</div>
-    <div class="picker" id="picker">
-      <button data-g="gauntlet">GAUNTLET</button>
-      <button data-g="tunnel">TUNNEL</button>
-      <button data-g="meteor">METEOR</button>
-      <button data-g="hunter">HUNTER</button>
-    </div>
   </header>
   <div id="stage">
     <canvas id="gl"></canvas>
@@ -108,6 +128,22 @@
       <div class="twist" id="stTwist"></div>
       <button class="bigbtn" id="goBtn" disabled>LOADING</button>
       <button class="pill" id="glowBtn">GLOW: BLOOM</button>
+      <div class="picker" id="picker">
+        <button data-g="gauntlet">GAUNTLET</button>
+        <button data-g="laser">LASER</button>
+        <button data-g="hunter">HUNTER</button>
+        <button data-g="crushers">CRUSHERS</button>
+        <button data-g="tunnel">TUNNEL</button>
+        <button data-g="slalom">SLALOM</button>
+        <button data-g="phantom">PHANTOM</button>
+        <button data-g="pong">BOUNCE</button>
+        <button data-g="meteor">METEOR</button>
+        <button data-g="windmill">WINDMILL</button>
+        <button data-g="wind">CROSSWIND</button>
+        <button data-g="mines">MINEFIELD</button>
+        <button data-g="pistons">PISTONS</button>
+        <button data-g="turrets">TURRETS</button>
+      </div>
       <div class="note" id="stNote">same course and rules as today's 2D game<br>60 seconds. steer the same way you do now</div>
     </div>
     <div class="over hidden" id="resOver">
@@ -115,6 +151,7 @@
       <div class="score" id="resScore">0</div>
       <div class="detail" id="resDetail"></div>
       <button class="bigbtn" id="againBtn">RUN AGAIN</button>
+      <button class="pill" id="pickBtn">PICK A DIFFERENT GAME</button>
       <div class="note">PRACTICE RUN // not scored, runs don't count</div>
     </div>
   </div>
@@ -695,6 +732,597 @@ const GAMES = {
       }
     },
   },
+
+  laser: {
+    name: "LASER GRID",
+    howto: "lasers swap sides -- pass on the dark side",
+    modName: { drift: "STROBE", squeeze: "THICK BEAMS" },
+    modDesc: { drift: "beams swap twice as fast", squeeze: "fat beams, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      const thick = G.mod === "squeeze" ? 13 : 8;
+      let y = -300;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        G.beams.push({
+          y,
+          split: 90 + G.rng() * (W - 180),
+          period: (1.7 + G.rng() * 1.4) * (G.mod === "drift" ? 0.55 : 1) * (1 - 0.25 * depth),
+          phase: G.rng() * Math.PI * 2,
+          thick, passed: false,
+        });
+        if (G.rng() < (G.mod === "rush" ? 0.9 : 0.55)) {
+          const b = G.beams[G.beams.length - 1];
+          G.coinDots.push({ y: y - 64, x: b.split + (G.rng() - .5) * 44, got: false });
+        }
+        y -= (155 + G.rng() * 85) * (1 - 0.18 * depth);
+      }
+    },
+    hotSide(b) { return Math.sin(G.t * 2 * Math.PI / b.period + b.phase) > 0 ? 0 : 1; },
+    update(dt, py, vs) {
+      for (const b of G.beams) {
+        b.y += vs;
+        if (Math.abs(b.y - py) < b.thick + 10 && G.inv <= 0) {
+          const side = G.px < b.split ? 0 : 1;
+          if (side === this.hotSide(b)) takeHit(py);
+        }
+        if (!b.passed && b.y > py + b.thick + 10) {
+          b.passed = true;
+          if (G.inv <= 0 && Math.abs(G.px - b.split) < 44) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const b of G.beams) {
+        if (b.y < -20 || b.y > H + 20) continue;
+        const s = Math.sin(G.t * 2 * Math.PI / b.period + b.phase);
+        const hot = s > 0 ? 0 : 1;
+        const closing = Math.abs(s) < 0.3;
+        const seg = [[0, b.split], [b.split, W]];
+        for (let i = 0; i < 2; i++) {
+          const [x0, x1] = seg[i];
+          if (i === hot) {
+            cx.shadowColor = "#ff3355"; cx.shadowBlur = 16;
+            cx.fillStyle = "#ff3355";
+            cx.fillRect(x0, b.y - b.thick, x1 - x0, b.thick * 2);
+            cx.shadowBlur = 0;
+          } else {
+            cx.globalAlpha = closing && Math.floor(G.t * 14) % 2 === 0 ? 0.5 : 0.16;
+            cx.fillStyle = "#ff3355";
+            cx.fillRect(x0, b.y - 1.5, x1 - x0, 3);
+            cx.globalAlpha = 1;
+          }
+        }
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 10;
+        cx.fillStyle = "#0fbcd8";
+        for (const ex of [4, b.split, W - 4]) {
+          cx.beginPath(); cx.arc(ex, b.y, 5, 0, 7); cx.fill();
+        }
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  crushers: {
+    name: "THE CRUSHERS",
+    howto: "jaws breathe open and shut -- time your pass",
+    modName: { drift: "FAST JAWS", squeeze: "IRON JAWS" },
+    modDesc: { drift: "jaws snap twice as fast", squeeze: "smaller openings, +250 finish bonus" },
+    halfGap(c) { return 30 + (c.base - 30) * (0.5 + 0.5 * Math.sin(G.t * 2 * Math.PI / c.period + c.phase)); },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -140;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        const cxm = 60 + G.rng() * (W - 120);
+        let base = (64 + G.rng() * 26) * (1 - 0.18 * diffP(depth));
+        if (G.mod === "squeeze") base *= 0.82;
+        G.things.push({ y, cxm, base: Math.max(38, base),
+          period: (1.5 + G.rng() * 1.0) * (G.mod === "drift" ? 0.6 : 1),
+          phase: G.rng() * 6.28, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.9 : 0.6))
+          G.coinDots.push({ y: y - 56, x: cxm + (G.rng() - .5) * 40, got: false });
+        y -= (150 + G.rng() * 70) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const c of G.things) {
+        c.y += vs;
+        const hg = this.halfGap(c);
+        if (Math.abs(c.y - py) < 12 && G.inv <= 0 && Math.abs(G.px - c.cxm) > hg - 10)
+          takeHit(py);
+        if (!c.passed && c.y > py + 12) {
+          c.passed = true;
+          if (G.inv <= 0 && hg < 46 && Math.abs(G.px - c.cxm) <= hg - 10) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const c of G.things) {
+        if (c.y < -20 || c.y > H + 20) continue;
+        const hg = this.halfGap(c);
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, c.y - 7, c.cxm - hg, 14);
+        cx.fillRect(c.cxm + hg, c.y - 7, W - c.cxm - hg, 14);
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#e8e6ff";
+        cx.fillRect(c.cxm - hg - 3, c.y - 7, 3, 14);
+        cx.fillRect(c.cxm + hg, c.y - 7, 3, 14);
+      }
+    },
+  },
+
+  slalom: {
+    name: "SLALOM",
+    howto: "gates alternate sides -- weave through",
+    modName: { drift: "SWINGING GATES", squeeze: "LONG GATES" },
+    modDesc: { drift: "gates sway side to side", squeeze: "longer gates, +250 finish bonus" },
+    gateLen(g) { return g.len + (g.amp ? Math.sin(G.t * 1.8 + g.phase) * g.amp : 0); },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let side = G.rng() < .5 ? 0 : 1, y = -160;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let len = W * (0.50 + G.rng() * 0.12 + 0.09 * diffP(depth));
+        const amp = G.mod === "drift" ? 24 + G.rng() * 20 : 0;
+        const phase = G.rng() * 6.28;
+        if (G.mod === "squeeze") len *= 1.08;
+        len = Math.min(W - 84, len);
+        G.things.push({ y, side, len, amp, phase, passed: false });
+        const openMid = side === 0 ? len + (W - len) / 2 : (W - len) / 2;
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.7))
+          G.coinDots.push({ y: y - 50, x: openMid + (G.rng() - .5) * 36, got: false });
+        side ^= 1;
+        y -= (135 + G.rng() * 55) * (1 - 0.12 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const g of G.things) {
+        g.y += vs;
+        const L = this.gateLen(g);
+        const edge = g.side === 0 ? L : W - L;
+        if (Math.abs(g.y - py) < 12 && G.inv <= 0) {
+          if ((g.side === 0 && G.px < L + 10) || (g.side === 1 && G.px > W - L - 10))
+            takeHit(py);
+        }
+        if (!g.passed && g.y > py + 12) {
+          g.passed = true;
+          if (G.inv <= 0 && Math.abs(G.px - edge) < 34) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const g of G.things) {
+        if (g.y < -20 || g.y > H + 20) continue;
+        const L = this.gateLen(g);
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        if (g.side === 0) cx.fillRect(0, g.y - 6, L, 12);
+        else cx.fillRect(W - L, g.y - 6, L, 12);
+        cx.shadowBlur = 0;
+        const tip = g.side === 0 ? L : W - L;
+        cx.fillStyle = "#ffc93c";
+        cx.beginPath();
+        cx.moveTo(tip, g.y - 6);
+        cx.lineTo(tip + (g.side === 0 ? 14 : -14), g.y);
+        cx.lineTo(tip, g.y + 6);
+        cx.closePath(); cx.fill();
+      }
+    },
+  },
+
+  pong: {
+    name: "BOUNCE ALLEY",
+    howto: "balls ricochet wall to wall -- read the bounce",
+    modName: { drift: "SPEED BALLS", squeeze: "BIG BALLS" },
+    modDesc: { drift: "balls fly 50% faster", squeeze: "huge balls, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -180;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        const mk = yy => G.things.push({ y: yy, x: 20 + G.rng() * (W - 40),
+          r: (9 + G.rng() * 5) * (G.mod === "squeeze" ? 1.45 : 1),
+          vx: (G.rng() < .5 ? -1 : 1) * (150 + G.rng() * 90)
+              * (G.mod === "drift" ? 1.5 : 1) * (1 + 0.3 * diffP(depth)),
+          passed: false, hitDone: false });
+        mk(y);
+        if (G.rng() < 0.2 + 0.35 * diffP(depth)) mk(y - 34);
+        if (G.rng() < (G.mod === "rush" ? 0.85 : 0.5))
+          G.coinDots.push({ y: y - 76, x: 24 + G.rng() * (W - 48), got: false });
+        y -= (125 + G.rng() * 70) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const b of G.things) {
+        b.y += vs; b.x += b.vx * dt;
+        if (b.x < b.r) { b.x = b.r; b.vx *= -1; }
+        if (b.x > W - b.r) { b.x = W - b.r; b.vx *= -1; }
+        if (!b.hitDone && G.inv <= 0 && Math.hypot(b.x - G.px, b.y - py) < b.r + 10) {
+          b.hitDone = true; takeHit(py);
+        }
+        if (!b.passed && b.y > py + b.r) {
+          b.passed = true;
+          if (!b.hitDone && G.inv <= 0 && Math.abs(b.x - G.px) < b.r + 40) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const b of G.things) {
+        if (b.y < -30 || b.y > H + 30) continue;
+        cx.globalAlpha = .3; cx.fillStyle = "#19e3ff";
+        cx.beginPath(); cx.arc(b.x - Math.sign(b.vx) * b.r * 1.3, b.y, b.r * .75, 0, 7); cx.fill();
+        cx.globalAlpha = 1;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  windmill: {
+    name: "SPIN CYCLE",
+    howto: "blades spin -- slip past the sweep",
+    modName: { drift: "TWIN BLADES", squeeze: "LONG BLADES" },
+    modDesc: { drift: "every windmill gets a second blade", squeeze: "longer blades, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -200;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let len = (135 + G.rng() * 55) * (G.mod === "squeeze" ? 1.3 : 1);
+        len = Math.min(255, len);
+        G.things.push({ y, cxm: 70 + G.rng() * (W - 140), len,
+          om: (0.9 + G.rng() * 0.7) * (1 + 0.5 * diffP(depth)) * (G.rng() < .5 ? -1 : 1),
+          phase: G.rng() * 6.28, cross: G.mod === "drift", minD: 999, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65))
+          G.coinDots.push({ y: y - 70, x: 24 + G.rng() * (W - 48), got: false });
+        y -= (175 + G.rng() * 80) * (1 - 0.12 * diffP(depth));
+      }
+    },
+    bladeDist(w, px, py) {
+      const a = w.phase + G.t * w.om;
+      const dirs = w.cross ? [a, a + Math.PI / 2] : [a];
+      let best = 999;
+      for (const ang of dirs) {
+        const dx = Math.cos(ang), dy = Math.sin(ang);
+        const rx = px - w.cxm, ry = py - w.y;
+        const proj = Math.max(-w.len / 2, Math.min(w.len / 2, rx * dx + ry * dy));
+        best = Math.min(best, Math.hypot(rx - dx * proj, ry - dy * proj));
+      }
+      return best;
+    },
+    update(dt, py, vs) {
+      for (const w of G.things) {
+        w.y += vs;
+        if (Math.abs(w.y - py) < w.len / 2 + 24) {
+          const d = this.bladeDist(w, G.px, py);
+          w.minD = Math.min(w.minD, d);
+          if (d < 14 && G.inv <= 0) takeHit(py);
+        }
+        if (!w.passed && w.y > py + w.len / 2 + 24) {
+          w.passed = true;
+          if (G.inv <= 0 && w.minD > 14 && w.minD < 36) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const w of G.things) {
+        if (w.y < -w.len / 2 - 20 || w.y > H + w.len / 2 + 20) continue;
+        const a = w.phase + G.t * w.om;
+        const dirs = w.cross ? [a, a + Math.PI / 2] : [a];
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.strokeStyle = "#0fbcd8"; cx.lineWidth = 9; cx.lineCap = "round";
+        for (const ang of dirs) {
+          cx.beginPath();
+          cx.moveTo(w.cxm - Math.cos(ang) * w.len / 2, w.y - Math.sin(ang) * w.len / 2);
+          cx.lineTo(w.cxm + Math.cos(ang) * w.len / 2, w.y + Math.sin(ang) * w.len / 2);
+          cx.stroke();
+        }
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#ffc93c";
+        cx.beginPath(); cx.arc(w.cxm, w.y, 6, 0, 7); cx.fill();
+      }
+    },
+  },
+
+  mines: {
+    name: "MINEFIELD",
+    howto: "get close and they arm -- clear the blast",
+    modName: { drift: "HAIR TRIGGER", squeeze: "BIG BLAST" },
+    modDesc: { drift: "fuses are nearly instant", squeeze: "wider blasts, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      const fuseT = G.mod === "drift" ? 0.28 : 0.5;
+      let dist = 350;
+      while (dist < total) {
+        const depth = Math.min(1, dist / total);
+        const count = 2 + Math.floor(G.rng() * 2) + (G.rng() < diffP(depth) - 0.4 ? 1 : 0);
+        for (let i = 0; i < count; i++)
+          G.things.push({ y: -dist - G.rng() * 90, x: 24 + G.rng() * (W - 48),
+            r: 11, state: 0, fuse: fuseT,
+            blastR: G.mod === "squeeze" ? 80 : 58, blastT: 0 });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.7))
+          G.coinDots.push({ y: -dist - 40, x: 24 + G.rng() * (W - 48), got: false });
+        dist += 150 + G.rng() * 80;
+      }
+    },
+    update(dt, py, vs) {
+      for (const m of G.things) {
+        m.y += vs;
+        if (m.state >= 3) continue;
+        const d = Math.hypot(m.x - G.px, m.y - py);
+        if (m.state < 2 && G.inv <= 0 && d < m.r + 10) {
+          m.state = 3; burst(m.x, m.y, "#ff3355"); takeHit(py); continue;
+        }
+        if (m.state === 0 && d < 80) m.state = 1;
+        else if (m.state === 1) {
+          m.fuse -= dt;
+          if (m.fuse <= 0) {
+            m.state = 2; m.blastT = 0.25;
+            if (G.inv <= 0 && d < m.blastR) takeHit(py);
+            else if (G.inv <= 0 && d < m.blastR + 46) graze(G.px, py);
+          }
+        } else if (m.state === 2) {
+          m.blastT -= dt;
+          if (m.blastT <= 0) m.state = 3;
+        }
+      }
+    },
+    render() {
+      for (const m of G.things) {
+        if (m.y < -30 || m.y > H + 30 || m.state === 3) continue;
+        if (m.state === 2) {
+          const k = 1 - m.blastT / 0.25;
+          cx.globalAlpha = 1 - k;
+          cx.strokeStyle = "#ff3355"; cx.lineWidth = 6;
+          cx.beginPath(); cx.arc(m.x, m.y, m.blastR * (0.4 + 0.6 * k), 0, 7); cx.stroke();
+          cx.globalAlpha = 1;
+          continue;
+        }
+        const hot = m.state === 1 && Math.floor(G.t * 10) % 2 === 0;
+        cx.shadowColor = hot ? "#ff3355" : "#19e3ff"; cx.shadowBlur = 12;
+        cx.fillStyle = "#171430";
+        cx.beginPath(); cx.arc(m.x, m.y, m.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+        cx.strokeStyle = hot ? "#ff3355" : "#0fbcd8"; cx.lineWidth = 2;
+        cx.beginPath(); cx.arc(m.x, m.y, m.r, 0, 7); cx.stroke();
+        cx.fillStyle = hot ? "#ff3355" : "#8a86b8";
+        cx.beginPath(); cx.arc(m.x, m.y, 3, 0, 7); cx.fill();
+      }
+    },
+  },
+
+  pistons: {
+    name: "PISTONS",
+    howto: "rams punch across -- pass on the pull-back",
+    modName: { drift: "DOUBLE TIME", squeeze: "LONG RAMS" },
+    modDesc: { drift: "rams thrust twice as fast", squeeze: "longer rams, +250 finish bonus" },
+    ext(p) { return p.maxL * Math.pow(Math.max(0, Math.sin(G.t * 2 * Math.PI / p.period + p.phase)), 1.7); },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let side = G.rng() < .5 ? 0 : 1, y = -160;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let maxL = W * (0.55 + 0.10 * diffP(depth)) * (G.mod === "squeeze" ? 1.15 : 1);
+        maxL = Math.min(W - 90, maxL);
+        G.things.push({ y, side, maxL,
+          period: (1.4 + G.rng() * 0.9) * (G.mod === "drift" ? 0.55 : 1),
+          phase: G.rng() * 6.28, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65))
+          G.coinDots.push({ y: y - 54, x: side === 0 ? W - 60 + (G.rng()-.5)*30 : 60 + (G.rng()-.5)*30, got: false });
+        side ^= 1;
+        y -= (150 + G.rng() * 70) * (1 - 0.13 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const p of G.things) {
+        p.y += vs;
+        const e = this.ext(p);
+        const tip = p.side === 0 ? e : W - e;
+        if (Math.abs(p.y - py) < 11 && G.inv <= 0) {
+          if ((p.side === 0 && G.px < e + 10) || (p.side === 1 && G.px > W - e - 10))
+            takeHit(py);
+        }
+        if (!p.passed && p.y > py + 11) {
+          p.passed = true;
+          if (G.inv <= 0 && e > p.maxL * 0.3 && Math.abs(G.px - tip) < 34) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const p of G.things) {
+        if (p.y < -20 || p.y > H + 20) continue;
+        const e = this.ext(p);
+        cx.globalAlpha = .18;
+        cx.fillStyle = "#19e3ff";
+        cx.fillRect(p.side === 0 ? 0 : W - p.maxL, p.y - 1.5, p.maxL, 3);
+        cx.globalAlpha = 1;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(p.side === 0 ? 0 : W - e, p.y - 8, e, 16);
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#e8e6ff";
+        if (e > 4) cx.fillRect(p.side === 0 ? e - 4 : W - e, p.y - 8, 4, 16);
+      }
+    },
+  },
+
+  phantom: {
+    name: "PHANTOM BARS",
+    howto: "the walls only appear as they get close",
+    modName: {}, modDesc: {},
+    reset() {
+      GAMES.gauntlet.reset();
+      for (const o of G.obstacles) o.gapW = Math.min(o.gapW * 1.15, W - 60);
+    },
+    update(dt, py, vs) { GAMES.gauntlet.update(dt, py, vs); },
+    render(py) {
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        const a = Math.max(0, Math.min(1, (o.y - (py - 330)) / 190));
+        if (a <= 0.01) continue;
+        cx.globalAlpha = a;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14 * a;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, o.y - 7, o.gapX, 14);
+        cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+        cx.shadowBlur = 0; cx.globalAlpha = 1;
+      }
+    },
+  },
+
+  turrets: {
+    name: "TURRET RUN",
+    howto: "turrets lock on and fire -- dodge the shot",
+    modName: { drift: "RAPID FIRE", squeeze: "HEAVY SHELLS" },
+    modDesc: { drift: "turrets fire twice as fast", squeeze: "fat slow shells, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -240;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        G.things.push({ y, side: G.rng() < .5 ? 0 : 1,
+          cool: (1.7 + G.rng() * 0.8) * (G.mod === "drift" ? 0.55 : 1),
+          timer: 0.6 + G.rng() * 0.8, tx: W / 2, ty: 0, aiming: false });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65))
+          G.coinDots.push({ y: y - 80, x: 40 + G.rng() * (W - 80), got: false });
+        y -= (190 + G.rng() * 90) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      const bR = G.mod === "squeeze" ? 9 : 5;
+      const bV = (G.mod === "squeeze" ? 210 : 280) + 90 * diffP(G.t / RUN_SECS());
+      for (const t of G.things) {
+        t.y += vs;
+        if (t.y < 10 || t.y > py - 40) { t.aiming = false; continue; }
+        t.timer -= dt;
+        if (t.timer <= 0.4 && !t.aiming) { t.aiming = true; t.tx = G.px; t.ty = py; }
+        if (t.timer <= 0) {
+          const x0 = t.side === 0 ? 10 : W - 10;
+          const d = Math.hypot(t.tx - x0, t.ty - t.y) || 1;
+          G.bullets.push({ x: x0, y: t.y, vx: (t.tx - x0) / d * bV, vy: (t.ty - t.y) / d * bV,
+            r: bR, passed: false, hitDone: false });
+          t.timer = t.cool; t.aiming = false;
+        }
+      }
+      for (let i = G.bullets.length - 1; i >= 0; i--) {
+        const b = G.bullets[i];
+        b.x += b.vx * dt; b.y += b.vy * dt + vs;
+        const d = Math.hypot(b.x - G.px, b.y - py);
+        if (!b.hitDone && G.inv <= 0 && d < b.r + 11) { b.hitDone = true; takeHit(py); }
+        if (!b.passed && b.y > py + 14) {
+          b.passed = true;
+          if (!b.hitDone && G.inv <= 0 && Math.abs(b.x - G.px) < b.r + 30) graze(G.px, py, 10);
+        }
+        if (b.y > H + 30 || b.x < -20 || b.x > W + 20) G.bullets.splice(i, 1);
+      }
+    },
+    render(py) {
+      for (const t of G.things) {
+        if (t.y < -20 || t.y > H + 20) continue;
+        const x0 = t.side === 0 ? 4 : W - 4;
+        if (t.aiming && t.y > 10 && t.y < py - 40) {
+          cx.globalAlpha = Math.floor(G.t * 12) % 2 === 0 ? .5 : .22;
+          cx.strokeStyle = "#ff3355"; cx.lineWidth = 1.5;
+          cx.beginPath(); cx.moveTo(x0, t.y); cx.lineTo(t.tx, t.ty); cx.stroke();
+          cx.globalAlpha = 1;
+        }
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 12;
+        cx.fillStyle = "#0fbcd8";
+        cx.beginPath(); cx.arc(x0, t.y, 10, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+        cx.strokeStyle = "#e8e6ff"; cx.lineWidth = 4;
+        const d = Math.hypot(t.tx - x0, t.ty - t.y) || 1;
+        cx.beginPath(); cx.moveTo(x0, t.y);
+        cx.lineTo(x0 + (t.tx - x0) / d * 14, t.y + (t.ty - t.y) / d * 14); cx.stroke();
+      }
+      for (const b of G.bullets) {
+        cx.shadowColor = "#ff3355"; cx.shadowBlur = 12;
+        cx.fillStyle = "#ff3355";
+        cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  wind: {
+    name: "CROSSWINDS",
+    howto: "the wind shoves you -- lean into it",
+    modName: { drift: "GALE FORCE" },
+    modDesc: { drift: "wind pushes 50% harder" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -120;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        let gapW = (120 + G.rng() * 60) * (1 - 0.15 * diffP(depth));
+        if (G.mod === "squeeze") gapW *= 0.8;
+        const gapX = 24 + G.rng() * (W - 48 - gapW);
+        G.obstacles.push({ y, gapX, gapW, drift: 0, phase: 0, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.9 : 0.6))
+          G.coinDots.push({ y: y - 60, x: gapX + gapW / 2 + (G.rng() - .5) * 40, got: false });
+        y -= (185 + G.rng() * 80) * (1 - 0.12 * diffP(depth));
+      }
+      let d = 200;
+      while (d < total) {
+        const depth = Math.min(1, d / total);
+        G.things.push({ yTop: -d, h: 170 + G.rng() * 90, dir: G.rng() < .5 ? -1 : 1,
+          force: (95 + G.rng() * 55) * (1 + 0.5 * diffP(depth)) * (G.mod === "drift" ? 1.5 : 1) });
+        d += 300 + G.rng() * 120;
+      }
+    },
+    update(dt, py, vs) {
+      for (const o of G.obstacles) {
+        o.y += vs;
+        if (Math.abs(o.y - py) < 12 && G.inv <= 0) {
+          const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
+          if (!inGap) takeHit(py);
+        }
+        if (!o.passed && o.y > py + 12) {
+          o.passed = true;
+          if (G.inv > 0) continue;
+          const edge = Math.min(G.px - o.gapX, o.gapX + o.gapW - G.px);
+          if (edge > 0 && edge < 30) graze(G.px, py);
+        }
+      }
+      for (const z of G.things) {
+        z.yTop += vs;
+        if (py > z.yTop && py < z.yTop + z.h) {
+          const push = z.dir * z.force * dt;
+          G.px = Math.max(14, Math.min(W - 14, G.px + push));
+          G.targetX = Math.max(14, Math.min(W - 14, G.targetX + push));
+        }
+      }
+    },
+    render() {
+      for (const z of G.things) {
+        if (z.yTop > H + 20 || z.yTop + z.h < -20) continue;
+        cx.strokeStyle = "rgba(255,201,60,.4)"; cx.lineWidth = 2;
+        for (let r = 0; r < 5; r++) {
+          const yy = z.yTop + z.h * (r + 0.5) / 5;
+          if (yy < -10 || yy > H + 10) continue;
+          for (let k = 0; k < 4; k++) {
+            const xx = ((k * 100 + r * 37 + G.t * z.dir * 130) % (W + 80) + (W + 80)) % (W + 80) - 40;
+            cx.beginPath();
+            cx.moveTo(xx - 7 * z.dir, yy - 4); cx.lineTo(xx + 7 * z.dir, yy);
+            cx.lineTo(xx - 7 * z.dir, yy + 4);
+            cx.stroke();
+          }
+        }
+      }
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, o.y - 7, o.gapX, 14);
+        cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+        cx.shadowBlur = 0;
+      }
+    },
+  },
 };
 // ---- index.html: hits, grazes, course reset, speed ramp ----
 function takeHit(py) {
@@ -750,7 +1378,9 @@ function worldSpeed() {
 // Practice runs at scratch settings: adult speed 1.00, no handicap multiplier.
 const SCRATCH = { id: "practice", name: "PRACTICE", speed: 1.00, mult: 1.00, mult25: 1.00 };
 const multFor = () => 1;
-const GAME_IDS = ["gauntlet", "tunnel", "meteor", "hunter"];
+const GAME_IDS = ["gauntlet", "laser", "hunter", "crushers", "tunnel", "slalom",
+                  "phantom", "pong", "meteor", "windmill", "wind", "mines",
+                  "pistons", "turrets"];
 let PICK = GAME_IDS.includes(qs.get("game")) ? qs.get("game") : "gauntlet";
 // Same date seed + twist as the live game (?date=YYYYMMDD / ?mod=id only for testing).
 const dsToDate = ds => new Date(+ds.slice(0, 4), +ds.slice(4, 6) - 1, +ds.slice(6, 8), 12);
@@ -775,6 +1405,7 @@ function startRun() {
   if (!R3() || !R3().ready) return;
   courseReset(SCRATCH, "shield", AT());
   $("startOver").classList.add("hidden"); $("resOver").classList.add("hidden");
+  $("chrome").classList.add("hidden");   // free the whole header for play area
   setPickerEnabled(false);
   R3().onStart();
   G.running = true; G.lastTs = performance.now();
@@ -896,12 +1527,20 @@ function setPickerEnabled(on) {
 }
 function showStart() {
   const at = AT(), g = GAMES[PICK], tw = twistLabel(PICK, at.mod);
-  for (const b of document.querySelectorAll("#picker button")) b.classList.toggle("on", b.dataset.g === PICK);
+  let onBtn = null;
+  for (const b of document.querySelectorAll("#picker button")) {
+    const on = b.dataset.g === PICK; b.classList.toggle("on", on); if (on) onBtn = b;
+  }
+  // keep the picker's scroll position deterministic (some browsers otherwise
+  // land on an arbitrary snap point on first paint) and bring the active game
+  // into view whenever it's picked from off-screen.
+  if (onBtn) onBtn.scrollIntoView({ inline: "nearest", block: "nearest" });
   $("stName").textContent = g.name;
   $("stHow").textContent = g.howto;
   $("stTwist").textContent = `TODAY'S TWIST: ${tw.name} // ${tw.desc}`;
   $("resOver").classList.add("hidden");
   $("startOver").classList.remove("hidden");
+  $("chrome").classList.remove("hidden");   // back on the start screen: chrome returns
   courseReset(SCRATCH, "shield", at);             // backdrop: the course at t=0
   if (R3() && R3().ready) R3().still();
 }
@@ -911,6 +1550,7 @@ document.querySelectorAll("#picker button").forEach(b => b.addEventListener("cli
 }));
 $("goBtn").addEventListener("click", startRun);
 $("againBtn").addEventListener("click", startRun);
+$("pickBtn").addEventListener("click", showStart);
 function setAppHeight() {
   const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   if (!standalone) return;
@@ -1144,6 +1784,86 @@ const dronePool = pool(() => {
   const spill = new THREE.Mesh(flatQuad, add(0xc46bff, 0.8)); spill.position.y = 0.4;
   g.add(m, eye, h, spill); g.userData = { m, eye, h, spill }; scene.add(g); return g;
 });
+
+/* ---- 2026-09-27 port: assets for the other 10 games. Shapes that never need
+   a per-instance tint reuse ONE shared material (cheap); shapes whose color or
+   opacity varies independently per instance (laser dark/hot flicker, phantom
+   fade, mine arm state, blast rings) get a FRESH material inside their pool's
+   make() -- same convention tunSpill already used above. ---- */
+// laser: full-width beam segments (own material -- hot bright vs dark flicker)
+const laserSegPool = pool(() => {
+  const mat = basic(0xff3355, { transparent: true });
+  const m = new THREE.Mesh(unitBox, mat); m.userData = { mat }; scene.add(m); return m;
+});
+function laserSeg(x0, x1, y, opacity, bright) {
+  if (x1 - x0 < 0.5) return;
+  const m = laserSegPool.next(), mat = m.userData.mat;
+  m.position.set(X((x0 + x1) / 2), 0, Z(y));
+  m.scale.set(x1 - x0, bright ? 16 : 3, bright ? 16 : 4);
+  mat.opacity = opacity; mat.color.set(bright ? 0xff5577 : 0xff3355);
+}
+const laserNodeGeo = new THREE.SphereGeometry(5, 12, 8), laserNodeMat = basic(0x0fbcd8);
+const laserNodePool = pool(() => { const m = new THREE.Mesh(laserNodeGeo, laserNodeMat); scene.add(m); return m; });
+// crushers + pistons: a plain white "cap" cube (jaw tip / ram head plate)
+const capGeo = new THREE.BoxGeometry(1, 1, 1), capMat = basic(0xe8e6ff);
+const capPool = pool(() => { const m = new THREE.Mesh(capGeo, capMat); scene.add(m); return m; });
+// slalom: gold flag wedge at the gate tip
+const flagGeo = new THREE.ConeGeometry(11, 24, 4).rotateZ(-Math.PI / 2), flagMat = basic(0xffc93c);
+const flagPool = pool(() => { const m = new THREE.Mesh(flagGeo, flagMat); scene.add(m); return m; });
+// pong: ricocheting ball + a motion-streak smear behind it
+const ballGeo = new THREE.SphereGeometry(1, 16, 12);
+const ballMat = new THREE.MeshLambertMaterial({ color: 0x0fbcd8, emissive: 0x0a5f70, flatShading: false });
+const ballPool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(ballGeo, ballMat);
+  const h = halo(0x19e3ff, 46, 0.55, 0.24);
+  const streak = new THREE.Mesh(flatQuad, add(0x19e3ff, 0.3));
+  g.add(m, h, streak); g.userData = { m, h, streak }; scene.add(g); return g;
+});
+// windmill: gold hub + up to 2 spinning ground-plane blades
+const hubGeo = new THREE.SphereGeometry(7, 12, 8), hubMat = basic(0xffc93c);
+const hubPool = pool(() => { const m = new THREE.Mesh(hubGeo, hubMat); scene.add(m); return m; });
+const bladeMats = faceMats(0x6ff1ff, 0x0fbcd8, 0x0a7f93);
+const bladePool = pool(() => {
+  const m = new THREE.Mesh(unitBox, bladeMats); m.add(new THREE.LineSegments(unitEdges, edgeMat));
+  scene.add(m); return m;
+});
+// mines: dark body + a state-colored ring (own material: cold cyan / hot red) + expanding blast ring
+const mineBodyGeo = new THREE.SphereGeometry(1, 14, 10), mineBodyMat = basic(0x171430);
+const mineBodyPool = pool(() => { const m = new THREE.Mesh(mineBodyGeo, mineBodyMat); scene.add(m); return m; });
+const mineRingGeo = new THREE.TorusGeometry(1, 0.16, 8, 20);
+const mineRingPool = pool(() => { const m = new THREE.Mesh(mineRingGeo, basic(0x0fbcd8)); m.rotation.x = Math.PI / 2; scene.add(m); return m; });
+const blastRingGeo = new THREE.RingGeometry(0.8, 1, 32);
+const blastPool = pool(() => { const m = new THREE.Mesh(blastRingGeo, add(0xff3355, 1, glowTex)); m.rotation.x = -Math.PI / 2; scene.add(m); return m; });
+// phantom: translucent fading bars -- opacity IS the game, so own material per slot
+const phantomPool = pool(() => {
+  const mat = new THREE.MeshBasicMaterial({ color: 0x19e3ff, transparent: true, opacity: 0, depthWrite: false });
+  const em = new THREE.LineBasicMaterial({ color: 0xd8fbff, transparent: true, opacity: 0 });
+  const m = new THREE.Mesh(unitBox, mat); m.add(new THREE.LineSegments(unitEdges, em));
+  m.userData = { mat, em }; scene.add(m); return m;
+});
+// turrets: wall-mounted dome + aimed barrel + fired shell
+const turretGeo = new THREE.SphereGeometry(11, 14, 10), turretMat = basic(0x0fbcd8);
+const turretPool = pool(() => { const m = new THREE.Mesh(turretGeo, turretMat); scene.add(m); return m; });
+const barrelGeo = new THREE.CylinderGeometry(2.2, 2.2, 1, 8).rotateZ(Math.PI / 2);   // long axis local +X
+const barrelMat = basic(0xe8e6ff);
+const barrelPool = pool(() => { const m = new THREE.Mesh(barrelGeo, barrelMat); scene.add(m); return m; });
+const bulletGeo = new THREE.SphereGeometry(1, 10, 8), bulletMat = basic(0xff3355);
+const bulletPool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(bulletGeo, bulletMat);
+  const h = halo(0xff3355, 30, 0.6, 0.28);
+  g.add(m, h); g.userData = { m }; scene.add(g); return g;
+});
+// crosswinds: drifting gust chevrons -- billboard sprites, direction is the cue
+const chevTexR = canvasTex(32, 16, (g2, w, h) => { g2.strokeStyle = "#ffc93c"; g2.lineWidth = 4; g2.lineCap = "round";
+  g2.beginPath(); g2.moveTo(5, 2); g2.lineTo(w - 5, h / 2); g2.lineTo(5, h - 2); g2.stroke(); });
+const chevTexL = canvasTex(32, 16, (g2, w, h) => { g2.strokeStyle = "#ffc93c"; g2.lineWidth = 4; g2.lineCap = "round";
+  g2.beginPath(); g2.moveTo(w - 5, 2); g2.lineTo(5, h / 2); g2.lineTo(w - 5, h - 2); g2.stroke(); });
+const windMatR = new THREE.SpriteMaterial({ map: chevTexR, transparent: true, opacity: .8, depthWrite: false });
+const windMatL = new THREE.SpriteMaterial({ map: chevTexL, transparent: true, opacity: .8, depthWrite: false });
+const windPool = pool(() => { const s = new THREE.Sprite(windMatR); s.scale.set(34, 17, 1); scene.add(s); return s; });
+
 // orb: fresnel shader, white-hot core fading to magenta at the rim
 const orbMat = new THREE.ShaderMaterial({
   uniforms: { c: { value: new THREE.Color(0xff2ea6) } },
@@ -1206,7 +1926,7 @@ function solveCamera(aspect, hudFrac) {
   for (const x of [0, 400]) for (const y of [0, 30]) pts.push([X(x), y, -FAR_REQ]);
   for (const x of [0, 400]) for (const y of [0, 26]) pts.push([X(x), y, 0]);
   pts.push([X(200), 0, 40]);                                  // a little floor behind the orb
-  const topLim = 1 - 2 * hudFrac - 0.02, m = 0.985;
+  const topLim = 1 - 2 * hudFrac - 0.01, m = 0.994;
   const fits = (fov, lookZ) => {
     cam.fov = fov;
     for (const cx of [-FOLLOW * 186, FOLLOW * 186]) {
@@ -1267,6 +1987,11 @@ function setFog() {
 /* ================= DRAW THE SIM STATE ================= */
 const _cols = {}; const colOf = h => _cols[h] || (_cols[h] = new THREE.Color(h));
 let scroll = 0, camX = 0;
+// past the fog: nothing to draw (tall walls would mask the horizon). Constant
+// (Z_BACK/FOG_FAR/CAM_BACK never change), so every draw*() function shares it.
+const Z_FAR_DRAW = -(FOG_FAR + 30), Z_NEAR_DRAW = CAM_BACK + 40;
+const inView = (y, margin = 20) => { const z = Z(y); return z > Z_FAR_DRAW - margin && z < Z_NEAR_DRAW + margin; };
+
 function drawWorld(py, dt) {
   const tNow = G.t;
   // camera: slight sideways follow + hit shake
@@ -1283,9 +2008,6 @@ function drawWorld(py, dt) {
   orb.position.set(X(G.px), 0, 0);
   orb.visible = !(G.inv > 0 && Math.floor(G.t * 12) % 2 === 0);
 
-  const zFar = -(FOG_FAR + 30), zNear = CAM_BACK + 40;   // past the fog: nothing to draw (tall walls would mask the horizon)
-  const inView = y => { const z = Z(y); return z > zFar && z < zNear; };
-
   // coins
   coinPool.begin();
   G.coinDots.forEach((c, i) => {
@@ -1297,6 +2019,10 @@ function drawWorld(py, dt) {
 
   // hazards
   barPool.begin(); rockPool.begin(); dronePool.begin(); tunSpill.begin();
+  laserSegPool.begin(); laserNodePool.begin(); capPool.begin(); flagPool.begin();
+  ballPool.begin(); hubPool.begin(); bladePool.begin(); mineBodyPool.begin();
+  mineRingPool.begin(); blastPool.begin(); phantomPool.begin(); turretPool.begin();
+  barrelPool.begin(); bulletPool.begin(); windPool.begin();
   tunMesh.visible = tunEdgeL.visible = tunEdgeR.visible = false;
   const gid = PICK;
   if (gid === "gauntlet") {
@@ -1326,8 +2052,32 @@ function drawWorld(py, dt) {
     });
   } else if (gid === "tunnel") {
     drawTunnel();
+  } else if (gid === "laser") {
+    drawLaser();
+  } else if (gid === "crushers") {
+    drawCrushers();
+  } else if (gid === "slalom") {
+    drawSlalom();
+  } else if (gid === "pong") {
+    drawPong();
+  } else if (gid === "windmill") {
+    drawWindmill();
+  } else if (gid === "mines") {
+    drawMines();
+  } else if (gid === "pistons") {
+    drawPistons();
+  } else if (gid === "phantom") {
+    drawPhantom(py);
+  } else if (gid === "turrets") {
+    drawTurrets();
+  } else if (gid === "wind") {
+    drawWind();
   }
   barPool.end(); rockPool.end(); dronePool.end(); tunSpill.end();
+  laserSegPool.end(); laserNodePool.end(); capPool.end(); flagPool.end();
+  ballPool.end(); hubPool.end(); bladePool.end(); mineBodyPool.end();
+  mineRingPool.end(); blastPool.end(); phantomPool.end(); turretPool.end();
+  barrelPool.end(); bulletPool.end(); windPool.end();
 
   // sparks (render-rate life, as in 2D draw)
   let n = 0;
@@ -1397,6 +2147,162 @@ function drawTunnel() {
   }
 }
 
+/* ---- 2026-09-27 port: draw functions for the other 10 games. Each reads the
+   verbatim sim state above (G.beams / G.things / G.obstacles / G.bullets) --
+   nothing here feeds back into hit detection or scoring. ---- */
+function drawLaser() {
+  for (const b of G.beams) {
+    if (!inView(b.y)) continue;
+    const s = Math.sin(G.t * 2 * Math.PI / b.period + b.phase);
+    const hot = s > 0 ? 0 : 1;
+    const closing = Math.abs(s) < 0.3;
+    const seg = [[0, b.split], [b.split, W]];
+    for (let i = 0; i < 2; i++) {
+      const [x0, x1] = seg[i];
+      if (i === hot) laserSeg(x0, x1, b.y, 1, true);
+      else laserSeg(x0, x1, b.y, (closing && Math.floor(G.t * 14) % 2 === 0) ? 0.5 : 0.16, false);
+    }
+    for (const ex of [4, b.split, W - 4]) {
+      const nd = laserNodePool.next(); nd.position.set(X(ex), 8, Z(b.y));
+    }
+  }
+}
+function drawCrushers() {
+  for (const c of G.things) {
+    if (!inView(c.y)) continue;
+    const hg = 30 + (c.base - 30) * (0.5 + 0.5 * Math.sin(G.t * 2 * Math.PI / c.period + c.phase));
+    barPiece(0, c.cxm - hg, c.y); barPiece(c.cxm + hg, W, c.y);
+    const cap1 = capPool.next(); cap1.position.set(X(c.cxm - hg - 1.5), 11, Z(c.y)); cap1.scale.set(3, 22, 14);
+    const cap2 = capPool.next(); cap2.position.set(X(c.cxm + hg + 1.5), 11, Z(c.y)); cap2.scale.set(3, 22, 14);
+  }
+}
+function drawSlalom() {
+  for (const g of G.things) {
+    if (!inView(g.y)) continue;
+    const L = g.len + (g.amp ? Math.sin(G.t * 1.8 + g.phase) * g.amp : 0);
+    if (g.side === 0) barPiece(0, L, g.y); else barPiece(W - L, W, g.y);
+    const tip = g.side === 0 ? L : W - L;
+    const fl = flagPool.next();
+    fl.position.set(X(tip), BAR_H + 12, Z(g.y));
+    fl.scale.set(g.side === 0 ? 1 : -1, 1, 1);
+  }
+}
+function drawPong() {
+  for (const b of G.things) {
+    if (!inView(b.y)) continue;
+    const g = ballPool.next(), { m, h, streak } = g.userData;
+    g.position.set(X(b.x), 0, Z(b.y));
+    m.scale.setScalar(b.r); m.position.y = b.r;
+    h.position.y = b.r; h.scale.set(b.r * 3.4, b.r * 3.4, 1);
+    const dir = Math.sign(b.vx) || 1;
+    streak.position.set(-dir * b.r * 1.3, 0.4, 0);
+    streak.scale.set(b.r * 1.5, 1, b.r * 1.5);
+  }
+}
+function drawWindmill() {
+  for (const w of G.things) {
+    if (!inView(w.y, w.len)) continue;
+    const a = w.phase + G.t * w.om;
+    const dirs = w.cross ? [a, a + Math.PI / 2] : [a];
+    for (const ang of dirs) {
+      const bl = bladePool.next();
+      bl.position.set(X(w.cxm), 0, Z(w.y));
+      bl.scale.set(w.len, 18, 9);
+      bl.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang)));
+    }
+    const hb = hubPool.next(); hb.position.set(X(w.cxm), 9, Z(w.y));
+  }
+}
+function drawMines() {
+  for (const m of G.things) {
+    if (!inView(m.y) || m.state === 3) continue;
+    if (m.state === 2) {
+      const k = 1 - m.blastT / 0.25;
+      const ring = blastPool.next();
+      ring.position.set(X(m.x), 1, Z(m.y));
+      ring.scale.setScalar(m.blastR * (0.4 + 0.6 * k));
+      ring.material.opacity = 1 - k;
+      continue;
+    }
+    const hot = m.state === 1 && Math.floor(G.t * 10) % 2 === 0;
+    const body = mineBodyPool.next();
+    body.position.set(X(m.x), m.r, Z(m.y)); body.scale.setScalar(m.r);
+    const ring = mineRingPool.next();
+    ring.position.set(X(m.x), 2, Z(m.y)); ring.scale.setScalar(m.r * 1.3);
+    ring.material.color.set(hot ? 0xff3355 : 0x0fbcd8);
+  }
+}
+function drawPistons() {
+  for (const p of G.things) {
+    if (!inView(p.y)) continue;
+    const e = p.maxL * Math.pow(Math.max(0, Math.sin(G.t * 2 * Math.PI / p.period + p.phase)), 1.7);
+    if (p.side === 0) barPiece(0, e, p.y); else barPiece(W - e, W, p.y);
+    if (e > 4) {
+      const cap = capPool.next(), tipX = p.side === 0 ? e : W - e;
+      cap.position.set(X(tipX), 11, Z(p.y)); cap.scale.set(4, 22, 16);
+    }
+  }
+}
+function drawPhantom(py) {
+  for (const o of G.obstacles) {
+    if (!inView(o.y)) continue;
+    // same reveal window as 2D (distance-ahead of the player, not camera fog) --
+    // never later than 2D's own fade-in, since it's the identical formula on
+    // the identical o.y/py.
+    const a = Math.max(0, Math.min(1, (o.y - (py - 330)) / 190));
+    if (a <= 0.01) continue;
+    const flicker = 0.78 + 0.22 * Math.sin(G.t * 22 + o.phase);
+    const op = a * flicker;
+    const b1 = phantomPool.next();
+    b1.position.set(X(o.gapX / 2), 0, Z(o.y)); b1.scale.set(Math.max(0.5, o.gapX), 22, 14);
+    b1.userData.mat.opacity = op * 0.6; b1.userData.em.opacity = op;
+    const w2 = W - o.gapX - o.gapW;
+    if (w2 > 0.5) {
+      const b2 = phantomPool.next();
+      b2.position.set(X(o.gapX + o.gapW + w2 / 2), 0, Z(o.y)); b2.scale.set(w2, 22, 14);
+      b2.userData.mat.opacity = op * 0.6; b2.userData.em.opacity = op;
+    }
+  }
+}
+function drawTurrets() {
+  for (const t of G.things) {
+    if (!inView(t.y)) continue;
+    const x0 = t.side === 0 ? 4 : W - 4;
+    turretPool.next().position.set(X(x0), 20, Z(t.y));
+    const d = Math.hypot(t.tx - x0, t.ty - t.y) || 1;
+    const dx = (t.tx - x0) / d, dz = (t.ty - t.y) / d;
+    const br = barrelPool.next();
+    br.position.set(X(x0) + dx * 9, 20, Z(t.y) + dz * 9);
+    br.scale.set(18, 1, 1);
+    br.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), new THREE.Vector3(dx, 0, dz));
+  }
+  for (const b of G.bullets) {
+    if (b.y < -900) continue;
+    const g = bulletPool.next(), { m } = g.userData;
+    g.position.set(X(b.x), 14, Z(b.y));
+    m.scale.setScalar(b.r * 1.4);
+  }
+}
+function drawWind() {
+  for (const o of G.obstacles) {
+    if (!inView(o.y)) continue;
+    barPiece(0, o.gapX, o.y); barPiece(o.gapX + o.gapW, W, o.y);
+  }
+  for (const z of G.things) {
+    if (!inView(z.yTop + z.h / 2, z.h)) continue;
+    for (let r = 0; r < 5; r++) {
+      const yy = z.yTop + z.h * (r + 0.5) / 5;
+      if (!inView(yy, 10)) continue;
+      for (let k = 0; k < 4; k++) {
+        const xx = ((k * 100 + r * 37 + G.t * z.dir * 130) % (W + 80) + (W + 80)) % (W + 80) - 40;
+        const s = windPool.next();
+        s.material = z.dir > 0 ? windMatR : windMatL;
+        s.position.set(X(xx), 40, Z(yy));
+      }
+    }
+  }
+}
+
 /* ================= HUD (2D overlay, same layout as the live HUD) ================= */
 const _p = new THREE.Vector3();
 function toScreen(x, y, z) { _p.set(x, y, z).project(camera); return [(_p.x + 1) / 2 * SW, (1 - _p.y) / 2 * SH, _p.z]; }
@@ -1410,6 +2316,18 @@ function drawHud(showRunHud) {
     const [sx, sy] = toScreen(X(f.x), 40 + (0.9 - f.life) * 30, Z(f.y));
     hx.globalAlpha = Math.min(1, f.life * 1.6); hx.fillStyle = f.color;
     hx.fillText(f.txt, sx, sy); hx.globalAlpha = 1;
+  }
+  // turret telegraph: same flash rate as 2D (Math.floor(G.t*12)%2), same
+  // t.aiming window computed by the verbatim sim -- just projected to screen.
+  if (PICK === "turrets") for (const t of G.things) {
+    if (!t.aiming) continue;
+    const x0 = t.side === 0 ? 4 : W - 4;
+    const [sx0, sy0] = toScreen(X(x0), 20, Z(t.y));
+    const [sx1, sy1] = toScreen(X(t.tx), 20, Z(t.ty));
+    hx.globalAlpha = Math.floor(G.t * 12) % 2 === 0 ? .55 : .22;
+    hx.strokeStyle = "#ff3355"; hx.lineWidth = 2;
+    hx.beginPath(); hx.moveTo(sx0, sy0); hx.lineTo(sx1, sy1); hx.stroke();
+    hx.globalAlpha = 1;
   }
   if (!showRunHud) return;
   hx.shadowColor = "rgba(7,6,15,.95)"; hx.shadowBlur = 6;
@@ -1455,12 +2373,66 @@ function measure(py) {
     if (e.t3 === null && s3) e.t3 = G.t;
     if (e.tReach === null && reached) e.tReach = G.t;
   };
-  if (PICK === "gauntlet") for (const o of G.obstacles) {
+  if (PICK === "gauntlet" || PICK === "wind") for (const o of G.obstacles) {
     if (o.y < -900) continue;
     const s2 = o.y + 7 > 0 && fog2(Math.max(0, Math.min(W, G.px)), o.y);
     const s3 = seen3(X(0), X(W), 0, BAR_H, Z(o.y) - BAR_D / 2, Z(o.y) + BAR_D / 2);
     track(o, s2, s3, o.y > py - 12);
   }
+  if (PICK === "laser") for (const b of G.beams) {
+    if (b.y < -900) continue;
+    const s2 = b.y + b.thick > 0 && fog2(Math.max(0, Math.min(W, G.px)), b.y);
+    const s3 = seen3(X(0), X(W), 0, 16, Z(b.y) - 8, Z(b.y) + 8);
+    track(b, s2, s3, b.y > py - b.thick - 10);
+  }
+  if (PICK === "crushers") for (const c of G.things) {
+    if (c.y < -900) continue;
+    const s2 = c.y + 7 > 0 && fog2(c.cxm, c.y);
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(c.y) - BAR_D / 2, Z(c.y) + BAR_D / 2);
+    track(c, s2, s3, c.y > py - 12);
+  }
+  if (PICK === "slalom") for (const g2 of G.things) {
+    if (g2.y < -900) continue;
+    const s2 = g2.y + 6 > 0 && fog2(g2.side === 0 ? 0 : W, g2.y);
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(g2.y) - BAR_D / 2, Z(g2.y) + BAR_D / 2);
+    track(g2, s2, s3, g2.y > py - 12);
+  }
+  if (PICK === "pistons") for (const p of G.things) {
+    if (p.y < -900) continue;
+    const s2 = p.y + 11 > 0 && fog2(p.side === 0 ? 0 : W, p.y);
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(p.y) - BAR_D / 2, Z(p.y) + BAR_D / 2);
+    track(p, s2, s3, p.y > py - 11);
+  }
+  if (PICK === "pong") for (const b of G.things) {
+    if (b.y < -900) continue;
+    track(b, b.y + b.r > 0 && fog2(b.x, b.y), seen3(X(b.x - b.r), X(b.x + b.r), 0, 2 * b.r, Z(b.y) - b.r, Z(b.y) + b.r), b.y > py - b.r - 10);
+  }
+  if (PICK === "windmill") for (const w of G.things) {
+    if (w.y < -900) continue;
+    const half = w.len / 2;
+    const s2 = w.y + half > 0 && fog2(w.cxm, w.y);
+    // full swing radius in Z too -- the blade sweeps in the ground plane, so a
+    // tight z-band around the hub misses the tip's nearest reach mid-rotation
+    const s3 = seen3(X(w.cxm - half), X(w.cxm + half), 0, 18, Z(w.y) - half, Z(w.y) + half);
+    track(w, s2, s3, w.y > py - half - 24);
+  }
+  if (PICK === "mines") for (const m of G.things) {
+    if (m.y < -900) continue;
+    track(m, m.y + m.r > 0 && fog2(m.x, m.y), seen3(X(m.x - m.r), X(m.x + m.r), 0, 2 * m.r, Z(m.y) - m.r, Z(m.y) + m.r), m.y > py - 80);
+  }
+  if (PICK === "phantom") for (const o of G.obstacles) {
+    if (o.y < -900) continue;
+    // phantom's own fade gate is STRICTER than the generic camera fog (it stays
+    // invisible until 330 world-px ahead of the player, well inside the normal
+    // fog band) -- s2 must reflect that reveal, not just fog2, so the "no later
+    // than 2D" check is measuring the real 2D telegraph.
+    const s2 = o.y + 7 > 0 && fog2(Math.max(0, Math.min(W, G.px)), o.y) && (o.y - (py - 330)) > 1.9;
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(o.y) - BAR_D / 2, Z(o.y) + BAR_D / 2);
+    track(o, s2, s3, o.y > py - 12);
+  }
+  // turrets: the aim telegraph is a HUD line keyed directly to the shared
+  // sim's t.aiming flag (see drawHud), so its reveal instant is byte-identical
+  // between 2D and 3D by construction -- no separate lead/lag to measure.
   if (PICK === "meteor") for (const r of G.rocks) {
     if (r.y < -900) continue;
     track(r, r.y + r.r > 0 && fog2(r.x, r.y), seen3(X(r.x - r.r), X(r.x + r.r), 0, 2 * r.r, Z(r.y) - r.r, Z(r.y) + r.r), r.y > py - r.r - 10);
