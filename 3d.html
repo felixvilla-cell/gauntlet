@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="robots" content="noindex">
+<title>DAILY GAUNTLET 3D PREVIEW</title>
+<link rel="icon" type="image/png" sizes="64x64" href="icon-64.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#07060f">
+<!-- 3D AUDITION (2026-09-27): practice only. Same seeded 400x700 simulation as
+     index.html (sim code copied verbatim from it), rendered with Three.js.
+     Never talks to Firestore, never counts a run, never writes storage. -->
+<style>
+  :root {
+    --bg: #07060f; --panel: #100e1f; --cyan: #19e3ff; --magenta: #ff2ea6;
+    --gold: #ffc93c; --ink: #e8e6ff; --dim: #8a86b8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; touch-action: none; overscroll-behavior: none; }
+  body {
+    font-family: "Menlo", "Courier New", monospace; color: var(--ink);
+    user-select: none; -webkit-user-select: none;
+  }
+  #app {
+    position: fixed; left: 0; top: 0; width: 100vw; height: var(--appH, 100dvh);
+    display: flex; flex-direction: column;
+    padding: max(6px, env(safe-area-inset-top)) 0 env(safe-area-inset-bottom);
+  }
+  header { flex: none; text-align: center; padding: 2px 8px 6px; }
+  .tag { font-size: 11px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
+  .tag b { color: var(--cyan); letter-spacing: 3px; text-shadow: 0 0 8px var(--cyan); }
+  .picker { display: flex; gap: 6px; justify-content: center; margin-top: 6px; }
+  .picker button {
+    flex: 1; max-width: 92px; padding: 7px 2px; font: inherit; font-size: 10px; letter-spacing: 1px;
+    color: var(--ink); background: var(--panel); border: 1px solid #2a2650; border-radius: 8px; cursor: pointer;
+  }
+  .picker button.on { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px rgba(255,201,60,.35); text-shadow: 0 0 6px rgba(255,201,60,.6); }
+  .picker button:disabled { opacity: .45; }
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  #gl, #hud { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  #hud { pointer-events: none; }
+  #stage::after {             /* CRT scanlines, same as the live game */
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
+  }
+  .over {
+    position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 0 20px;
+    background: linear-gradient(180deg, rgba(7,6,15,.35), rgba(7,6,15,.78) 45%, rgba(7,6,15,.35));
+  }
+  .over h1 { font-size: 28px; letter-spacing: 4px; color: var(--cyan); text-shadow: 0 0 12px var(--cyan), 0 0 36px rgba(25,227,255,.4); }
+  .over .how { font-size: 12px; color: var(--ink); letter-spacing: 1px; }
+  .over .twist { font-size: 11px; color: var(--gold); letter-spacing: 2px; }
+  .over .note { font-size: 10px; color: var(--dim); letter-spacing: 1px; line-height: 1.6; }
+  .bigbtn {
+    margin-top: 6px; padding: 14px 44px; font: inherit; font-size: 18px; font-weight: bold; letter-spacing: 4px;
+    color: #07060f; background: linear-gradient(90deg, var(--cyan), var(--magenta)); border: 0; border-radius: 12px;
+    box-shadow: 0 0 22px rgba(255,46,166,.45); cursor: pointer;
+  }
+  .pill {
+    padding: 5px 14px; font: inherit; font-size: 10px; letter-spacing: 2px; cursor: pointer;
+    color: var(--cyan); background: transparent; border: 1px solid rgba(25,227,255,.6); border-radius: 999px;
+  }
+  .score { font-size: 44px; color: var(--gold); letter-spacing: 2px; text-shadow: 0 0 14px rgba(255,201,60,.6); }
+  .detail { font-size: 11px; color: var(--dim); line-height: 1.8; letter-spacing: 1px; }
+  .hidden { display: none !important; }
+  #rotate {
+    position: fixed; inset: 0; z-index: 60; display: none; flex-direction: column; align-items: center;
+    justify-content: center; gap: 18px; background: var(--bg); text-align: center; letter-spacing: 3px;
+  }
+  .rot-phone {
+    width: 34px; height: 58px; border: 3px solid var(--cyan); border-radius: 8px;
+    box-shadow: 0 0 14px rgba(25,227,255,.6); animation: rotphone 2s ease-in-out infinite;
+  }
+  @keyframes rotphone { 0%, 30% { transform: rotate(-90deg); } 60%, 100% { transform: rotate(0deg); } }
+  .rot-msg { color: var(--ink); font-size: 18px; line-height: 1.5; }
+  .rot-msg b { color: var(--magenta); font-size: 26px; text-shadow: 0 0 12px var(--magenta); }
+  .rot-sub { color: var(--dim); font-size: 11px; }
+  @media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) { #rotate { display: flex; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three-0.169.0/three.module.min.js",
+  "three/addons/": "./vendor/three-0.169.0/addons/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="tag"><b>3D PREVIEW</b> -- practice only, nothing counts</div>
+    <div class="picker" id="picker">
+      <button data-g="gauntlet">GAUNTLET</button>
+      <button data-g="tunnel">TUNNEL</button>
+      <button data-g="meteor">METEOR</button>
+      <button data-g="hunter">HUNTER</button>
+    </div>
+  </header>
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <canvas id="hud"></canvas>
+    <div class="over" id="startOver">
+      <h1 id="stName">THE GAUNTLET</h1>
+      <div class="how" id="stHow"></div>
+      <div class="twist" id="stTwist"></div>
+      <button class="bigbtn" id="goBtn" disabled>LOADING</button>
+      <button class="pill" id="glowBtn">GLOW: BLOOM</button>
+      <div class="note" id="stNote">same course and rules as today's 2D game<br>60 seconds. steer the same way you do now</div>
+    </div>
+    <div class="over hidden" id="resOver">
+      <div class="twist" id="resTitle"></div>
+      <div class="score" id="resScore">0</div>
+      <div class="detail" id="resDetail"></div>
+      <button class="bigbtn" id="againBtn">RUN AGAIN</button>
+      <div class="note">PRACTICE RUN // not scored, runs don't count</div>
+    </div>
+  </div>
+</div>
+<div id="rotate" aria-hidden="true">
+  <div class="rot-phone"></div>
+  <div class="rot-msg">TURN YOUR PHONE<br><b>UPRIGHT</b></div>
+  <div class="rot-sub">THE GAUNTLET ONLY PLAYS VERTICAL</div>
+</div>
+<script>
+"use strict";
+/* ============================================================
+   SIMULATION -- copied VERBATIM from index.html (BUILD 20260925-hcap-auto).
+   The 3D layer below only draws this state. Every block headed
+   "index.html:" is the live game's own code, so courses, collisions, speed
+   ramp, coins, combo, grazes and boosts behave exactly as they do in 2D
+   (verified 2026-09-27: identical scores, 2D vs 3D, 4 games x 7 twists).
+   ============================================================ */
+const qs = new URLSearchParams(location.search);
+// ---- index.html: daily seed helpers ----
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+};
+const dateLabel = () => new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}).toUpperCase();
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const seedFromDate = s => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+// ---- index.html: V2 rules, twists ----
+const V2 = () => true;
+const RUN_SECS = () => V2() ? 60 : 90;
+// Difficulty progress mapper: every course formula runs on diffP(x) where x
+// is raw progress 0..1 through the run. V2 compresses the whole old curve
+// into the first 0 seconds and keeps climbing (0.667 -> 1.117 of the old
+// scale).
+const diffP = x => V2() ? 0.667 + 0.45 * Math.min(x, 1) : Math.min(x, 1);
+
+// Daily modifier: the date picks one twist for EVERYONE (separate seed stream
+// from the maze layout, so adding mods never reshuffles the course).
+const MODS = [
+  { id: "classic", name: "CLASSIC",       desc: "no twist. pure gauntlet" },
+  { id: "rush",    name: "COIN RUSH",     desc: "coins everywhere, worth double" },
+  { id: "fog",     name: "FOG",           desc: "you only see whats near you" },
+  { id: "mirror",  name: "MIRROR",        desc: "left is right, right is left" },
+  { id: "turbo",   name: "TURBO",         desc: "faster maze, 25% score bonus" },
+  { id: "drift",   name: "MOVING WALLS",  desc: "every wall slides around" },
+  { id: "squeeze", name: "TIGHT SQUEEZE", desc: "narrow gaps, +250 finish bonus" },
+];
+const modIndexRaw = ds => Math.floor(mulberry32(seedFromDate(ds + "mod"))() * MODS.length);
+function todayMod() { return modForDate(new Date()); }
+// Twist for any calendar date (the champion reel replays past days).
+function modForDate(at) {
+  // Never the same twist two days running. Each day's pick dodges the
+  // PREVIOUS day's effective pick, so replay the last 30 days from a fixed
+  // offset -- cheap, and every device walks the same dates to the same answer.
+  const d = new Date(at.getFullYear(), at.getMonth(), at.getDate()); d.setDate(d.getDate() - 30);
+  let prev = -1;
+  for (let k = 0; k <= 30; k++) {
+    const ds = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+    let i = modIndexRaw(ds);
+    if (i === prev)
+      i = (i + 1 + Math.floor(mulberry32(seedFromDate(ds + "mod2"))() * (MODS.length - 1))) % MODS.length;
+    prev = i;
+    d.setDate(d.getDate() + 1);
+  }
+  return MODS[prev];
+}
+// ---- index.html: chiptune music (per-game tunes) ----
+const Music = (() => {
+  const m = n => 440 * Math.pow(2, (n - 69) / 12);        // MIDI note -> Hz
+  // chord tones from a root: [root, third, fifth, octave]. Lead plays these +24
+  // (bright arcade register); bass bounces root <-> root+12.
+  const IVAL = { min: [0,3,7,12], maj: [0,4,7,12], dim: [0,3,6,12], sus: [0,5,7,12] };
+  // 8-step arp patterns index the 4 chord tones (0..3). 0 = rest.
+  const PAT = {
+    updown: [0,1,2,3,2,1,0,1], climb: [0,1,2,3,0,1,2,3], down: [3,2,1,0,3,2,1,0],
+    pedal:  [0,2,0,3,0,2,0,1], skip:  [0,2,1,3,2,0,1,2], bounce: [0,3,1,3,0,3,1,3],
+    gallop: [0,0,2,3,2,2,1,0], sparse:[0,0,0,3,0,0,2,0],
+  };
+  // Build LEAD/BASS 32-step arrays (Hz) from a 4-chord progression + pattern.
+  function build(prog, patName) {
+    const pat = PAT[patName], lead = [], bass = [];
+    for (const [root, type] of prog) {
+      const tones = IVAL[type].map(iv => root + iv);
+      for (let i = 0; i < 8; i++) {
+        const p = pat[i];
+        lead.push(p === 0 && pat === PAT.sparse && i !== 0 ? 0 : m(tones[p] + 24));
+        bass.push(m(i === 2 || i === 6 ? root + 12 : root));
+      }
+    }
+    return { lead, bass };
+  }
+  // One track per game id. bpm, waveforms, arp pattern, and a 4-chord loop.
+  const SPEC = {
+    gauntlet:{bpm:138,lw:"square",  bw:"triangle",pat:"updown",prog:[[45,"min"],[41,"maj"],[48,"maj"],[43,"maj"]]},
+    laser:   {bpm:152,lw:"sawtooth",bw:"triangle",pat:"down",  prog:[[52,"min"],[50,"maj"],[47,"maj"],[45,"maj"]]},
+    hunter:  {bpm:160,lw:"square",  bw:"sawtooth",pat:"gallop",prog:[[50,"min"],[45,"maj"],[48,"maj"],[50,"min"]]},
+    crushers:{bpm:104,lw:"square",  bw:"triangle",pat:"pedal", prog:[[48,"min"],[44,"maj"],[43,"maj"],[48,"min"]]},
+    tunnel:  {bpm:146,lw:"triangle",bw:"triangle",pat:"climb", prog:[[48,"maj"],[45,"min"],[43,"maj"],[41,"maj"]]},
+    slalom:  {bpm:150,lw:"square",  bw:"square",  pat:"bounce",prog:[[43,"maj"],[48,"maj"],[45,"min"],[50,"maj"]]},
+    phantom: {bpm:120,lw:"triangle",bw:"triangle",pat:"sparse",prog:[[46,"dim"],[45,"min"],[44,"maj"],[46,"dim"]]},
+    pong:    {bpm:132,lw:"square",  bw:"square",  pat:"updown",prog:[[48,"maj"],[43,"maj"],[48,"maj"],[45,"min"]]},
+    meteor:  {bpm:144,lw:"sawtooth",bw:"triangle",pat:"skip",  prog:[[45,"min"],[52,"min"],[48,"maj"],[43,"maj"]]},
+    windmill:{bpm:156,lw:"triangle",bw:"square",  pat:"climb", prog:[[50,"maj"],[45,"maj"],[43,"maj"],[50,"maj"]]},
+    wind:    {bpm:128,lw:"triangle",bw:"triangle",pat:"pedal", prog:[[41,"maj"],[48,"maj"],[45,"min"],[43,"maj"]]},
+    mines:   {bpm:140,lw:"square",  bw:"triangle",pat:"sparse",prog:[[47,"min"],[43,"maj"],[42,"maj"],[47,"min"]]},
+    pistons: {bpm:150,lw:"square",  bw:"square",  pat:"pedal", prog:[[40,"min"],[47,"min"],[45,"maj"],[40,"min"]]},
+    turrets: {bpm:134,lw:"square",  bw:"triangle",pat:"down",  prog:[[45,"min"],[45,"min"],[43,"maj"],[41,"maj"]]},
+    // weekly champion reel: bright major victory loop (C-G-Am-F), not a game
+    champ:   {bpm:132,lw:"square",  bw:"triangle",pat:"climb", prog:[[48,"maj"],[43,"maj"],[45,"min"],[41,"maj"]]},
+  };
+  // saw is harsher/louder -> tame its peak; triangle is quiet -> lift it.
+  const LEAD_PEAK = { square: 0.11, sawtooth: 0.075, triangle: 0.13 };
+  const BASS_PEAK = { square: 0.16, sawtooth: 0.13, triangle: 0.20 };
+  const cache = {};
+  const trackFor = id => {
+    const sp = SPEC[id] || SPEC.gauntlet;
+    if (!cache[id]) { const b = build(sp.prog, sp.pat); cache[id] = { ...sp, lead: b.lead, bass: b.bass, stepDur: 60 / sp.bpm / 2 }; }
+    return cache[id];
+  };
+  let ctx = null, master = null, tmr = null, step = 0, nextT = 0, cur = null;
+  let muted = false;
+  let lvl = 1, startDelay = 0;   // per-track level + a one-time lead-in (the reel lets the fanfare ring first)
+
+  function tone(freq, t, dur, type, peak) {
+    if (!freq) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function hat(t) {
+    const b = ctx.createBuffer(1, 800, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const s = ctx.createBufferSource(), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = b; hp.type = "highpass"; hp.frequency.value = 7000;
+    g.gain.setValueAtTime(0.06 * lvl, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    s.connect(hp); hp.connect(g); g.connect(master); s.start(t);
+  }
+  function schedule() {
+    const T = cur;
+    while (nextT < ctx.currentTime + 0.12) {
+      const s = step % T.lead.length;
+      tone(T.lead[s], nextT, T.stepDur * 0.9,  T.lw, LEAD_PEAK[T.lw] * lvl);
+      tone(T.bass[s], nextT, T.stepDur * 0.95, T.bw, BASS_PEAK[T.bw] * lvl);
+      if (s % 2 === 1) hat(nextT);                         // off-beat groove
+      nextT += T.stepDur; step++;
+    }
+  }
+  // iOS Safari drops the user-activation the moment the tap handler awaits, so
+  // a resume() called AFTER `await ensurePin` no-ops -> the context stays
+  // suspended and the clock is frozen (why music played on run 1, where the
+  // context is created fresh, but went silent on every RUN AGAIN). unlock()
+  // must be called SYNCHRONOUSLY in the click handler, before any await.
+  function arm() {                                         // (re)start the step scheduler
+    if (tmr || muted || !cur) return;
+    step = 0; nextT = ctx.currentTime + 0.05 + startDelay; startDelay = 0;
+    schedule(); tmr = setInterval(schedule, 40);
+  }
+  function ensureCtx() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+      // iOS parks the context in "interrupted"/"suspended" once audio stops or
+      // the app backgrounds; resume() fired mid-run then no-ops. Catch the
+      // transition BACK to "running" and re-arm so music returns on the next
+      // run instead of dying after run 1 (the bug Felix hit -- only run 1 had
+      // sound). Also below: resume from ANY non-running state, not just
+      // "suspended" (iOS uses "interrupted").
+      ctx.onstatechange = () => { if (ctx.state === "running" && (G.running || (typeof REEL !== "undefined" && REEL.on))) arm(); };
+    }
+    if (ctx.state !== "running") ctx.resume();
+  }
+  // ---- one-shot sound effects (weekly champion reel) ----
+  function noise(t, dur, peak, type, f0, f1) {
+    const n = Math.ceil(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = b; f.type = type; f.frequency.setValueAtTime(f0, t);
+    if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(master); src.start(t); src.stop(t + dur + 0.02);
+  }
+  function sweep(t, f0, f1, dur, type, peak) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  // ---- 8-bit champion fanfare (Felix picked 2026-09-24: shared run + hit opening,
+  // tune 3 SWING HERO or 4 LEVEL UP alternating by week, bar-3 arps + "ta-da" ending) ----
+  let fanBus = null, pwaves = {};
+  function bus() {                                          // fanfare-only limiter so the big hits never clip
+    if (fanBus) return fanBus;
+    const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.12;
+    fanBus = ctx.createGain(); fanBus.gain.value = 0.5; fanBus.connect(lim); lim.connect(ctx.destination);
+    return fanBus;
+  }
+  function pwave(duty) {
+    if (pwaves[duty]) return pwaves[duty];
+    const N = 48, re = new Float32Array(N), im = new Float32Array(N);
+    for (let n = 1; n < N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * duty);
+    return (pwaves[duty] = ctx.createPeriodicWave(re, im));
+  }
+  function chip(t, midi, dur, peak = 0.12, duty = 0.5, stac = 0.8) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.setPeriodicWave(pwave(duty)); o.frequency.value = m(midi);
+    const len = Math.max(0.03, dur * stac);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.004);
+    g.gain.linearRampToValueAtTime(peak * 0.7, t + Math.min(0.06, len * 0.6)); g.gain.setValueAtTime(peak * 0.7, t + len - 0.01);
+    g.gain.linearRampToValueAtTime(0.0001, t + len); o.connect(g); g.connect(bus()); o.start(t); o.stop(t + len + 0.02);
+  }
+  function nbass(t, midi, dur, peak = 0.3) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = m(midi);
+    const len = dur * 0.85; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.004);
+    g.gain.setValueAtTime(peak, t + len - 0.01); g.gain.linearRampToValueAtTime(0.0001, t + len);
+    o.connect(g); g.connect(bus()); o.start(t); o.stop(t + len + 0.02);
+  }
+  function nz(t, dur, peak, type, f0) {
+    const n = Math.ceil(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = b; f.type = type; f.frequency.value = f0;
+    g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(bus()); src.start(t); src.stop(t + dur + 0.02);
+  }
+  const nkick = (t, p = 0.5) => { nbass(t, 40, 0.05, p); nz(t, 0.05, p * 0.3, "lowpass", 900); };
+  const nsnare = (t, p = 0.12) => nz(t, 0.07, p, "bandpass", 2600);
+  const nhat = (t, p = 0.04) => nz(t, 0.025, p, "highpass", 8000);
+  const SCALE = [0, 2, 4, 5, 7, 9, 11];
+  function third(n) {                                       // diatonic third below, C major
+    const oct = Math.floor(n / 12), deg = SCALE.indexOf(n % 12);
+    if (deg < 0) return n - 3;
+    const d2 = deg - 2; return (d2 < 0 ? oct - 1 : oct) * 12 + SCALE[(d2 + 7) % 7];
+  }
+  const TUNES8 = {                                          // [beat after the hit, midi, beats]
+    swing: [[1, 75, .25], [1.25, 76, .75], [2, 79, .5], [2.5, 76, .25], [2.75, 79, .75], [3.5, 84, .5],
+            [4, 81, .25], [4.25, 80, .25], [4.5, 81, .5], [5, 84, 1], [6, 83, .25], [6.25, 84, .25], [6.5, 86, .5], [7, 79, 1]],
+    levelup: [[1, 72, .25], [1.25, 76, .25], [1.5, 79, .5], [2, 74, .25], [2.25, 77, .25], [2.5, 81, .5], [3, 76, .25], [3.25, 79, .25], [3.5, 83, .5],
+              [4, 84, 1.5], [5.5, 83, .25], [5.75, 84, .25], [6, 86, .5], [6.5, 84, .5], [7, 79, .5], [7.5, 76, .5]],
+  };
+  const B8 = 60 / 180;
+  function tada8(T) {                                       // bar 4: trill, "ta-da" turn, bass bounce
+    const b = B8;
+    for (let i = 0; i < 8; i++) chip(T + i * b / 8, i % 2 ? 86 : 84, b / 8, 0.12, 0.5, 0.95);
+    chip(T + b, 84, b * 1.5, 0.14, 0.5, 0.95); chip(T + b, 79, b * 1.5, 0.07, 0.125, 0.95); chip(T + b, 76, b * 1.5, 0.06, 0.125, 0.95);
+    chip(T + 2.5 * b, 83, b / 2, 0.12, 0.5, 0.8); chip(T + 3 * b, 84, b, 0.15, 0.5, 0.9); chip(T + 3 * b, 88, b, 0.07, 0.125, 0.9);
+    [36, 43, 48, 55, 60, 55, 48, 43].forEach((n, i) => nbass(T + i * b / 2, n, b / 2, 0.3));
+    nkick(T, 0.7); nz(T, 0.3, 0.1, "highpass", 5000); nkick(T + 3 * b, 0.6); nsnare(T + 3 * b, 0.14);
+  }
+  function fanfare8(t, tuneKey) {
+    const b = B8, bar = 4 * b, at = (br, bt = 0) => t + br * bar + bt * b, tune = TUNES8[tuneKey] || TUNES8.swing;
+    [55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81].forEach((n, i) => chip(at(0, i / 4), n, b / 4, 0.06 + i * 0.004, 0.25, 0.85));
+    for (let i = 0; i < 16; i++) nsnare(at(0, i / 4), 0.03 + i * 0.008);
+    for (let i = 0; i < 4; i++) nbass(at(0, i), 43 + (i % 2 ? 12 : 0), b);
+    const H = at(1);                                        // the HIT: the name pops in here
+    [84, 79, 76].forEach((n, i) => chip(H, n, b, i ? 0.08 : 0.13, i ? 0.125 : 0.5, 0.95)); nkick(H, 0.7); nz(H, 0.25, 0.1, "highpass", 5000);
+    tune.forEach(([bt, n, len]) => { chip(H + bt * b, n, len * b, 0.13, 0.5, 0.78); chip(H + bt * b, third(n), len * b, 0.06, 0.125, 0.78); });
+    const roots = [48, 48, 48, 48, 41, 41, 43, 43];
+    for (let i = 0; i < 8; i++) { const s2 = H + i * b, r = roots[i];
+      nbass(s2, r - 12, b / 2); nbass(s2 + b / 2, r - 5, b / 2, 0.24);
+      if (i % 2 === 0) nkick(s2, 0.45); else nsnare(s2, 0.12); nhat(s2 + b / 2); }
+    [[0, [80, 75, 72, 75, 80, 84], 44], [2, [82, 77, 74, 77, 82, 86], 46]].forEach(([bt, arp, root]) => {
+      arp.forEach((n, i) => { const s2 = at(3, bt + i / 3); chip(s2, n, b / 3, 0.12, 0.5, 0.9); chip(s2, n - 12, b / 3, 0.05, 0.125, 0.9); });
+      for (let i = 0; i < 2; i++) { nbass(at(3, bt + i), root - 12 + (i ? 12 : 0), b); nkick(at(3, bt + i), 0.4); nhat(at(3, bt + i + .5)); }
+    });
+    for (let i = 0; i < 8; i++) nsnare(at(3, 3 + i / 8), 0.04 + i * 0.012);
+    tada8(at(4));
+  }
+  const SFX = {
+    fanfare8(t, tuneKey) { fanfare8(t, tuneKey); },
+    tada8(t) { tada8(t); },
+    fanfare(t) {                                           // da-da-da-DAAA + crash
+      [72, 76, 79].forEach((n, i) => { tone(m(n), t + i * 0.11, 0.1, "square", 0.16); tone(m(n - 12), t + i * 0.11, 0.1, "triangle", 0.2); });
+      const h = t + 0.33;
+      [72, 76, 79, 84].forEach(n => tone(m(n), h, 1.1, "square", 0.08));
+      tone(m(48), h, 1.2, "triangle", 0.3); tone(m(36), h, 1.2, "triangle", 0.25);
+      noise(h, 1.2, 0.18, "highpass", 3000);
+    },
+    small(t) { [76, 79, 84].forEach((n, i) => tone(m(n), t + i * 0.09, i === 2 ? 0.5 : 0.09, "square", 0.13)); },
+    pop(t) {                                               // one firework
+      const k = 0.8 + Math.random() * 0.5;
+      sweep(t, 900 * k, 90, 0.18, "triangle", 0.2);
+      noise(t + 0.02, 0.45, 0.16, "bandpass", 2200 * k, 500);
+    },
+    whoosh(t) { noise(t, 0.35, 0.09, "bandpass", 500, 3500); },
+    tick(t, k) { tone(620 + 1100 * k, t, 0.035, "square", 0.05); },
+    ding(t) { tone(m(88), t, 0.7, "triangle", 0.2); tone(m(95), t, 0.5, "triangle", 0.1); tone(m(76), t, 0.35, "square", 0.05); },
+    drumroll(t) {
+      for (let i = 0; i < 14; i++) noise(t + i * 0.055, 0.06, 0.05 + i * 0.008, "bandpass", 1800);
+      const h = t + 0.8; [67, 72, 76].forEach(n => tone(m(n), h, 0.6, "square", 0.09)); tone(m(48), h, 0.7, "triangle", 0.28);
+      noise(h, 0.7, 0.12, "highpass", 3500);
+    },
+    go(t) {                                                // NEW WEEK. / 3 RUNS. / GO.
+      tone(m(72), t, 0.16, "square", 0.14);
+      tone(m(76), t + 0.45, 0.16, "square", 0.14);
+      [84, 88, 91].forEach(n => tone(m(n), t + 0.9, 0.9, "square", 0.09)); tone(m(60), t + 0.9, 1, "triangle", 0.3);
+      noise(t + 0.9, 0.9, 0.16, "highpass", 3000);
+    },
+  };
+  return {
+    unlock() { if (!muted) ensureCtx(); },
+    FAN8_LEN: 5 * 4 * (60 / 180), FAN8_HIT: 4 * (60 / 180),
+    // fire a reel sound effect now (+delay seconds); silent until iOS has unlocked audio
+    sfx(name, delay = 0, arg) {
+      if (muted || !ctx || !SFX[name]) return;
+      if (ctx.state === "running") return SFX[name](ctx.currentTime + 0.01 + delay, arg);
+      // iOS still waking the context right after the unlocking tap: play it the moment it runs
+      if (name !== "tick") ctx.resume().then(() => { if (ctx.state === "running") SFX[name](ctx.currentTime + 0.01 + delay, arg); }).catch(() => {});
+    },
+    start(gameId, opts) {
+      if (muted) return;
+      cur = trackFor(gameId || "gauntlet");
+      lvl = (opts && opts.level) || 1; startDelay = (opts && opts.delay) || 0;
+      ensureCtx();
+      // If the context is running, arm now. If iOS is still resuming it
+      // (state !== "running"), onstatechange arms as soon as it wakes.
+      if (ctx.state === "running") arm();
+    },
+    stop() { if (tmr) { clearInterval(tmr); tmr = null; } },
+    nowPlaying() { return cur && { bpm: cur.bpm, lw: cur.lw, bw: cur.bw, lead0: Math.round(cur.lead[0]) }; },
+    muted() { return muted; },
+    toggle() {
+      muted = !muted;
+      localStorage.setItem("g2:muted", muted ? "1" : "0");
+      if (muted) this.stop();
+      return muted;
+    },
+  };
+})();
+// ---- index.html: world + game state ----
+const W = 400, H = 700;
+const G = {
+  running: false, t: 0, lastTs: 0,
+  px: W/2, targetX: W/2, hearts: 3, inv: 0, shake: 0,
+  coins: 0, obstacles: [], coinDots: [], sparks: [], floaters: [],
+  speedScale: 1, mult: 1, boost: "", slow: 1, magnet: false,
+  rng: null, nextBarY: 0, barCount: 0, finished: false,
+  // risk-reward layer (2026-07-14 "not hard or fun enough" pass)
+  combo: 0, bestCombo: 0, coinPts: 0, grazePts: 0, grazes: 0, grazeTimer: 0,
+};
+const comboTier = () => Math.min(5, 1 + Math.floor(G.combo / 8));
+// ---- index.html: the four games in this preview (render() methods are the
+//      2D ones and are never called here; the 3D renderer draws instead) ----
+const GAMES = {
+  gauntlet: {
+    name: "THE GAUNTLET",
+    howto: "dodge the walls, thread the gaps",
+    modName: {}, modDesc: {},   // global twist labels already fit
+    reset() {
+      // Pre-generate the whole 90s course deterministically: bars spaced by
+      // time. World speed ramps 150 -> 330 px/s (before handicap). Mod effects
+      // apply AFTER each rng draw so the draw sequence stays stable.
+      let y = -80;
+      const totalDist = avgCourseSpeed() * RUN_SECS() * 1.15;
+      while (y > -totalDist) {
+        // Depth: gaps tighten, bars pack closer, and more walls slide as the
+        // run gets deep -- the last third should feel like threading needles.
+        const depth = Math.min(1, -y / totalDist);
+        const late = 1 - 0.30 * diffP(depth);
+        let gapW = (96 + G.rng() * 70 * (diffP(depth) < .3 ? 1.4 : 1)) * late;
+        if (G.mod === "squeeze") gapW *= 0.8;
+        const gapX = 24 + G.rng() * (W - 48 - gapW);
+        const driftFrom = G.mod === "drift" ? 2 : 8;
+        const driftChance = G.mod === "drift" ? 1.01 : 0.3 + 0.35 * diffP(depth);
+        const drift = (G.barCount > driftFrom && G.rng() < driftChance) ? (G.rng() < .5 ? -1 : 1) * (26 + G.rng()*30) : 0;
+        G.obstacles.push({ y, gapX, gapW, drift, phase: G.rng() * Math.PI * 2, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
+          const cxm = gapX + gapW / 2;
+          for (let i = 0; i < 3; i++)
+            G.coinDots.push({ y: y - 40 - i * 34, x: cxm + (G.rng() - .5) * 50, got: false });
+        }
+        G.barCount++;
+        y -= (120 + G.rng() * 90) * (1 - 0.18 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const o of G.obstacles) o.y += vs;
+      for (const o of G.obstacles) if (o.drift) {
+        o.gapX += Math.sin(G.t * 1.6 + o.phase) * o.drift * dt;
+        o.gapX = Math.max(10, Math.min(W - 10 - o.gapW, o.gapX));
+      }
+      if (G.inv <= 0) for (const o of G.obstacles) {
+        if (Math.abs(o.y - py) < 12) {
+          const inGap = G.px > o.gapX + 10 && G.px < o.gapX + o.gapW - 10;
+          if (!inGap) { takeHit(py); break; }
+        }
+      }
+      // graze: cleared the bar hugging a gap edge
+      for (const o of G.obstacles) {
+        if (o.passed || o.y <= py + 12) continue;
+        o.passed = true;
+        if (G.inv > 0) continue;
+        const edge = Math.min(G.px - o.gapX, o.gapX + o.gapW - G.px);
+        if (edge > 0 && edge < 30) graze(G.px, py);
+      }
+    },
+    render() {
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        cx.fillRect(0, o.y - 7, o.gapX, 14);
+        cx.fillRect(o.gapX + o.gapW, o.y - 7, W - o.gapX - o.gapW, 14);
+        cx.shadowBlur = 0;
+      }
+    },
+  },
+
+  tunnel: {
+    name: "TUNNEL WEAVE",
+    howto: "stay inside the winding tunnel",
+    modName: { drift: "WOBBLE", squeeze: "NARROW" },
+    modDesc: { drift: "the tunnel sways extra", squeeze: "tighter tunnel, +250 finish bonus" },
+    reset() {
+      // Centerline = three layered seeded sines; walls = center +- width that
+      // tightens over the run. dist 0 starts above the screen so there's a
+      // grace runway before the first squeeze reaches the orb.
+      const a1 = 60 + G.rng()*50, a2 = 30 + G.rng()*30, a3 = 12 + G.rng()*12;
+      const p1 = G.rng()*7, p2 = G.rng()*7, p3 = G.rng()*7;
+      const f1 = .0021 + G.rng()*.0008, f2 = .0052 + G.rng()*.0016, f3 = .011 + G.rng()*.004;
+      const sway = G.mod === "drift" ? 1.4 : 1;
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      for (let dist = 0; dist < total; dist += 16) {
+        // Depth: the tunnel sways wider as the run gets deep
+        const lateSway = 1 + 0.35 * diffP(dist / total);
+        const cxm = W/2 + sway * lateSway * (a1*Math.sin(dist*f1+p1) + a2*Math.sin(dist*f2+p2) + a3*Math.sin(dist*f3+p3)) * 0.55;
+        G.path.push({ x: Math.max(70, Math.min(W - 70, cxm)) });
+      }
+      G.tunnelW = d => (150 - 86 * diffP(d / total)) * (G.mod === "squeeze" ? 0.8 : 1);
+      const step = G.mod === "rush" ? 90 : 150;
+      for (let dist = 260; dist < total; dist += step + G.rng()*60) {
+        const seg = G.path[Math.floor(dist/16)];
+        if (seg) G.coinDots.push({ y: -dist, x: seg.x + (G.rng()-.5)*30, got: false });
+      }
+    },
+    update(dt, py, vs) {
+      G.traveled += vs;
+      const dist = G.traveled - py;
+      if (dist < 0 || G.inv > 0) return;
+      const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))];
+      if (!seg) return;
+      const off = Math.abs(G.px - seg.x), w = G.tunnelW(dist);
+      if (off > w - 12) {
+        takeHit(py);
+        G.targetX = seg.x;   // bounce back toward the channel
+      } else if (off > w - 32) {
+        // graze: riding the wall pays out every half second
+        G.grazeTimer += dt;
+        if (G.grazeTimer > 0.5) { G.grazeTimer = 0; graze(G.px, py, 10); }
+      } else G.grazeTimer = Math.max(0, G.grazeTimer - dt * 2);
+    },
+    render() {
+      cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+      cx.fillStyle = "#0fbcd8";
+      const Lp = [], Rp = [];
+      for (let sy = -24; sy <= H + 24; sy += 16) {
+        const dist = G.traveled - sy;
+        if (dist < 0) { Lp.push([-40, sy]); Rp.push([W + 40, sy]); continue; }
+        const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))] || { x: W/2 };
+        const halfW = G.tunnelW(dist);
+        Lp.push([seg.x - halfW, sy]); Rp.push([seg.x + halfW, sy]);
+      }
+      cx.beginPath(); cx.moveTo(-2, -24);
+      for (const [x, y] of Lp) cx.lineTo(x, y);
+      cx.lineTo(-2, H + 24); cx.closePath(); cx.fill();
+      cx.beginPath(); cx.moveTo(W + 2, -24);
+      for (const [x, y] of Rp) cx.lineTo(x, y);
+      cx.lineTo(W + 2, H + 24); cx.closePath(); cx.fill();
+      cx.shadowBlur = 0;
+    },
+  },
+
+  meteor: {
+    name: "METEOR STORM",
+    howto: "dodge the falling rocks",
+    modName: { drift: "FRENZY", squeeze: "BIG ROCKS" },
+    modDesc: { drift: "way more rocks", squeeze: "huge meteors, +250 finish bonus" },
+    reset() {
+      // Rocks fall faster than the world scroll (each has its own multiplier),
+      // so threats arrive at mixed speeds instead of as a fixed course.
+      const total = avgCourseSpeed() * RUN_SECS() * 1.6;
+      const gap = G.mod === "drift" ? 95 : 118;
+      let dist = 300;
+      while (dist < total) {
+        G.rocks.push({
+          y: -dist,
+          x: 20 + G.rng() * (W - 40),
+          r: (14 + G.rng() * 18) * (G.mod === "squeeze" ? 1.35 : 1),
+          mul: 1 + G.rng() * 0.9,
+          vx: (G.rng() - .5) * 70,
+          hitDone: false, passed: false,
+        });
+        // Depth: the storm gets denser as the run gets deep
+        dist += (gap + G.rng() * 110) * (1 - 0.22 * diffP(dist / total));
+      }
+      const cstep = G.mod === "rush" ? 130 : 220;
+      for (let d = 250; d < total; d += cstep + G.rng()*80)
+        G.coinDots.push({ y: -d, x: 30 + G.rng() * (W - 60), got: false });
+    },
+    update(dt, py, vs) {
+      for (const r of G.rocks) {
+        r.y += vs * r.mul;
+        r.x += r.vx * dt;
+        if (r.x < r.r) { r.x = r.r; r.vx *= -1; }
+        if (r.x > W - r.r) { r.x = W - r.r; r.vx *= -1; }
+        if (!r.hitDone && G.inv <= 0 && Math.hypot(r.x - G.px, r.y - py) < r.r + 10) {
+          r.hitDone = true; takeHit(py);
+        }
+        // graze: rock slipped past close enough to feel the wind
+        if (!r.passed && r.y > py + r.r) {
+          r.passed = true;
+          if (!r.hitDone && G.inv <= 0 && Math.abs(r.x - G.px) < r.r + 42) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const r of G.rocks) {
+        if (r.y < -40 || r.y > H + 40) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 12;
+        cx.fillStyle = "#0fbcd8";
+        cx.beginPath(); cx.arc(r.x, r.y, r.r, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+        cx.fillStyle = "rgba(7,6,15,.35)";   // crater shading
+        cx.beginPath(); cx.arc(r.x - r.r*.3, r.y - r.r*.25, r.r*.45, 0, 7); cx.fill();
+      }
+    },
+  },
+
+  hunter: {
+    name: "HUNTER",
+    howto: "drones chase you -- juke them late",
+    modName: { drift: "SWARM", squeeze: "BIG DRONES" },
+    modDesc: { drift: "way more drones", squeeze: "giant drones, +250 finish bonus" },
+    reset() {
+      const total = avgCourseSpeed() * RUN_SECS() * 1.05;
+      const step = G.mod === "drift" ? 190 : 275;
+      let dist = 400;
+      while (dist < total) {
+        const depth = Math.min(1, dist / total);
+        G.things.push({ y: -dist, x: 30 + G.rng() * (W - 60),
+          r: 12 * (G.mod === "squeeze" ? 1.5 : 1),
+          agil: 55 + 60 * diffP(depth), passed: false, hitDone: false });
+        dist += (step + G.rng() * 140) * (1 - 0.18 * diffP(depth));
+      }
+      for (let d = 300; d < total; d += (G.mod === "rush" ? 130 : 210) + G.rng() * 90)
+        G.coinDots.push({ y: -d, x: 30 + G.rng() * (W - 60), got: false });
+    },
+    update(dt, py, vs) {
+      for (const d of G.things) {
+        d.y += vs * 1.08;
+        if (d.y > -100 && d.y < py - 6) {              // chase until level, then commit
+          const dx = G.px - d.x;
+          d.x += Math.sign(dx) * Math.min(Math.abs(dx), d.agil * dt);
+        }
+        if (!d.hitDone && G.inv <= 0 && Math.hypot(d.x - G.px, d.y - py) < d.r + 10) {
+          d.hitDone = true; takeHit(py);
+        }
+        if (!d.passed && d.y > py + d.r) {
+          d.passed = true;
+          if (!d.hitDone && G.inv <= 0 && Math.abs(d.x - G.px) < d.r + 44) graze(G.px, py);
+        }
+      }
+    },
+    render() {
+      for (const d of G.things) {
+        if (d.y < -30 || d.y > H + 30) continue;
+        cx.shadowColor = "#c46bff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#c46bff";
+        cx.beginPath();                                 // down-pointing drone
+        cx.moveTo(d.x, d.y + d.r);
+        cx.lineTo(d.x - d.r * .9, d.y - d.r * .7);
+        cx.lineTo(d.x + d.r * .9, d.y - d.r * .7);
+        cx.closePath(); cx.fill();
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#fff";
+        cx.beginPath(); cx.arc(d.x, d.y - d.r * .15, 2.6, 0, 7); cx.fill();
+      }
+    },
+  },
+};
+// ---- index.html: hits, grazes, course reset, speed ramp ----
+function takeHit(py) {
+  if (G.attract) return;          // reel footage: the course plays, nobody gets hit
+  G.hearts--; G.inv = 1.2; G.shake = 14;
+  if (G.combo >= 8) floatText(G.px, py - 30, "COMBO LOST", "#ff2ea6");
+  G.combo = 0;
+  burst(G.px, py, "#ff2ea6");
+  if (navigator.vibrate) navigator.vibrate(80);
+  if (G.hearts <= 0) endRun(true);
+}
+
+// Near-miss reward: skimming a hazard without touching it pays points.
+// Each game decides what counts as a graze; the payout and juice live here.
+function graze(x, y, pts = 15) {
+  if (G.attract) return;
+  G.grazePts += pts; G.grazes++;
+  floatText(x, y, "GRAZE +" + pts, "#19e3ff");
+}
+function floatText(x, y, txt, color) {
+  G.floaters.push({ x: Math.max(40, Math.min(W - 40, x)), y, txt, color, life: 0.9 });
+}
+
+function courseReset(playerCfg, boost, at) {
+  // `at` = {ds, mod, game} rebuilds a PAST day's course (champion reel
+  // footage); runs always pass nothing and get today's.
+  G.rng = mulberry32(seedFromDate(at ? at.ds : today())); // same course for everyone
+  G.mod = at ? at.mod : todayMod().id;                 // same twist for everyone
+  G.game = at ? at.game : currentGame();               // same game for everyone today
+  G.t = 0; G.px = W/2; G.targetX = W/2;
+  G.hearts = boost === "shield" ? 4 : 3;
+  G.inv = 0; G.shake = 0; G.coins = 0; G.finished = false;
+  G.obstacles = []; G.coinDots = []; G.sparks = []; G.rocks = []; G.path = [];
+  G.floaters = []; G.beams = []; G.things = []; G.bullets = [];
+  G.combo = 0; G.bestCombo = 0; G.coinPts = 0;
+  G.grazePts = 0; G.grazes = 0; G.grazeTimer = 0;
+  G.traveled = 0;
+  G.speedScale = playerCfg.speed; G.mult = multFor(playerCfg);
+  G.boost = boost; G.slow = boost === "slowmo" ? 0.9 : 1; G.magnet = boost === "magnet";
+  G.barCount = 0;
+  G.game.reset();
+}
+// Speed = 160 + 260 * diffP(progress). Jul-14 tuning ramps 160->420 over
+// 90s; V2 ramps 333->450 over 60s (starts at the old 30s-left mark). The
+// average is exact because the ramp is linear in diffP.
+function avgCourseSpeed(){ return 160 + 260 * (diffP(0) + diffP(1)) / 2; }
+function worldSpeed() {
+  const ramp = 160 + 260 * diffP(Math.min(G.t / RUN_SECS(), 1));
+  return ramp * G.speedScale * G.slow * (G.mod === "turbo" ? 1.15 : 1);
+}
+
+/* ================= PRACTICE-ONLY GLUE (3D page) ================= */
+// Practice runs at scratch settings: adult speed 1.00, no handicap multiplier.
+const SCRATCH = { id: "practice", name: "PRACTICE", speed: 1.00, mult: 1.00, mult25: 1.00 };
+const multFor = () => 1;
+const GAME_IDS = ["gauntlet", "tunnel", "meteor", "hunter"];
+let PICK = GAME_IDS.includes(qs.get("game")) ? qs.get("game") : "gauntlet";
+// Same date seed + twist as the live game (?date=YYYYMMDD / ?mod=id only for testing).
+const dsToDate = ds => new Date(+ds.slice(0, 4), +ds.slice(4, 6) - 1, +ds.slice(6, 8), 12);
+function AT() {
+  const ds = /^\d{8}$/.test(qs.get("date") || "") ? qs.get("date") : today();
+  const forced = MODS.find(m => m.id === qs.get("mod"));
+  return { ds, mod: (forced || modForDate(dsToDate(ds))).id, game: GAMES[PICK] };
+}
+function twistLabel(gameId, modId) {
+  const g = GAMES[gameId], m = MODS.find(x => x.id === modId);
+  return { name: g.modName[modId] || m.name, desc: g.modDesc[modId] || m.desc };
+}
+const $ = id => document.getElementById(id);
+const R3 = () => window.R3D;          // renderer module (loads after this script)
+
+function burst(x, y, color) {
+  for (let i = 0; i < 10; i++)
+    G.sparks.push({ x, y, vx: (Math.random()-.5)*260, vy: (Math.random()-.5)*260, life: .5, color });
+}
+
+function startRun() {
+  if (!R3() || !R3().ready) return;
+  courseReset(SCRATCH, "shield", AT());
+  $("startOver").classList.add("hidden"); $("resOver").classList.add("hidden");
+  setPickerEnabled(false);
+  R3().onStart();
+  G.running = true; G.lastTs = performance.now();
+  Music.start(PICK);
+  requestAnimationFrame(loop);
+}
+
+function endRun(died) {
+  G.running = false;
+  Music.stop();
+  // same score formula as index.html endRun (mult is 1: practice, scratch)
+  const survived = Math.min(G.t, RUN_SECS());
+  const finishBonus = died ? 0 : 250 + (G.hearts * 50) + (G.mod === "squeeze" ? 250 : 0);
+  let raw = G.coinPts + G.grazePts + Math.floor(survived) * 2 + finishBonus;
+  if (G.mod === "turbo") raw *= 1.25;
+  const score = Math.round(raw * G.mult);
+  G.lastScore = score; G.lastDied = died;
+  $("resTitle").textContent = `${G.game.name} // ${twistLabel(PICK, G.mod).name}`;
+  $("resScore").textContent = score.toLocaleString();
+  $("resDetail").innerHTML =
+    `${G.coins} coins ${G.coinPts}` +
+    (G.bestCombo >= 8 ? ` (best combo ${G.bestCombo})` : "") +
+    (G.grazes ? `<br>${G.grazes} grazes ${G.grazePts}` : "") +
+    `<br>${Math.floor(survived)}s survived &times; 2` +
+    (finishBonus ? ` &nbsp;+&nbsp; finish ${finishBonus}` : "<br>down before the end") +
+    (G.mod === "turbo" ? " &nbsp;&times; 1.25 turbo" : "");
+  $("resOver").classList.remove("hidden");
+  setPickerEnabled(true);
+  if (R3()) R3().onEnd();
+}
+
+const SIDEWAYS = matchMedia("(orientation: landscape) and (max-height: 540px) and (pointer: coarse)");
+function loop(ts) {
+  if (!G.running) return;
+  // phone turned sideways: hold the run still until it's upright again
+  if (SIDEWAYS.matches) { G.lastTs = ts; requestAnimationFrame(loop); return; }
+  const dt = Math.min((ts - G.lastTs) / 1000, 0.05);
+  const frameMs = ts - G.lastTs;
+  G.lastTs = ts; G.t += dt;
+  if (G.t >= RUN_SECS()) { G.finished = true; endRun(false); return; }
+
+  // ---- index.html loop(): steering, scroll, hazards, coin pull + combo ----
+  // steer: lerp toward target; held arrow keys glide instead of stepping
+  const mdir = G.mod === "mirror" ? -1 : 1;
+  if (keys.ArrowLeft || keys.a) G.targetX -= 300 * dt * mdir;
+  if (keys.ArrowRight || keys.d) G.targetX += 300 * dt * mdir;
+  G.targetX = Math.max(14, Math.min(W - 14, G.targetX));
+  G.px += (G.targetX - G.px) * Math.min(1, dt * 12);
+  G.px = Math.max(14, Math.min(W - 14, G.px));
+
+  const vs = worldSpeed() * dt;
+  const py = H * 0.78;
+  for (const c of G.coinDots) c.y += vs;
+
+  // hazards: the week's game moves its own obstacles and calls takeHit()
+  if (G.inv > 0) G.inv -= dt;
+  G.game.update(dt, py, vs);
+  if (!G.running) return;   // takeHit drained the last heart mid-update
+  // coins: everyone gets a small pull so near-misses still collect (the
+  // finger covers the orb on a phone -- exact alignment shouldn't be the
+  // skill); the MAGNET boost is the same idea with real range.
+  // MAGNET pull must always beat the world scroll, or a coin that slips past
+  // gets dragged away mid-pull and never arrives (Felix, 2026-07-12): its pull
+  // is world speed plus a real closing speed, so caught means collected.
+  const pullR = G.magnet ? 110 : 42;
+  const pullV = G.magnet ? worldSpeed() + 230 : 170;
+  for (const c of G.coinDots) {
+    if (c.got) continue;
+    const dx = G.px - c.x, dy = py - c.y, d = Math.hypot(dx, dy);
+    if (d > 0 && d < pullR) { c.x += dx / d * pullV * dt; c.y += dy / d * pullV * dt; }
+    if (d < 24) {
+      c.got = true; G.coins++; burst(c.x, c.y, "#ffc93c");
+      // combo: unbroken coin chains tier up the coin value (x2 at 8, x3 at
+      // 16... capped x5); one hit resets the chain. Greed is the skill.
+      G.combo++; G.bestCombo = Math.max(G.bestCombo, G.combo);
+      const tier = comboTier();
+      G.coinPts += (G.mod === "rush" ? 20 : 10) * tier;
+      if (G.combo >= 8 && G.combo % 8 === 0 && tier > 1)
+        floatText(c.x, c.y - 20, "COMBO x" + tier, "#ffc93c");
+    }
+  }
+  R3().frame(py, dt, vs, frameMs);
+  requestAnimationFrame(loop);
+}
+
+/* ================= INPUT (same as index.html) ================= */
+const stageEl = $("stage");
+function pointerX(e) {
+  const r = stageEl.getBoundingClientRect();
+  const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+  return (clientX - r.left) / r.width * W;
+}
+// Touch steers RELATIVE to where the drag started (index.html, 2026-07-12).
+let touchAnchorX = null, orbAnchorX = null;
+stageEl.addEventListener("touchstart", e => {
+  if (!G.running) return;
+  touchAnchorX = pointerX(e); orbAnchorX = G.px;
+  e.preventDefault();
+}, {passive:false});
+stageEl.addEventListener("touchmove", e => {
+  if (!G.running || touchAnchorX === null) return;
+  const flip = G.mod === "mirror" ? -1 : 1;
+  G.targetX = orbAnchorX + (pointerX(e) - touchAnchorX) * 1.2 * flip;
+  e.preventDefault();
+}, {passive:false});
+stageEl.addEventListener("touchend", () => { touchAnchorX = null; });
+stageEl.addEventListener("mousemove", e => {
+  if (!G.running) return;
+  G.targetX = G.mod === "mirror" ? W - pointerX(e) : pointerX(e);
+});
+const keys = {};
+addEventListener("keydown", e => { keys[e.key] = true; });
+addEventListener("keyup",   e => { keys[e.key] = false; });
+document.addEventListener("touchmove", e => e.preventDefault(), {passive:false});
+
+/* ================= PICKER / SCREENS ================= */
+function setPickerEnabled(on) {
+  for (const b of document.querySelectorAll("#picker button")) b.disabled = !on;
+}
+function showStart() {
+  const at = AT(), g = GAMES[PICK], tw = twistLabel(PICK, at.mod);
+  for (const b of document.querySelectorAll("#picker button")) b.classList.toggle("on", b.dataset.g === PICK);
+  $("stName").textContent = g.name;
+  $("stHow").textContent = g.howto;
+  $("stTwist").textContent = `TODAY'S TWIST: ${tw.name} // ${tw.desc}`;
+  $("resOver").classList.add("hidden");
+  $("startOver").classList.remove("hidden");
+  courseReset(SCRATCH, "shield", at);             // backdrop: the course at t=0
+  if (R3() && R3().ready) R3().still();
+}
+document.querySelectorAll("#picker button").forEach(b => b.addEventListener("click", () => {
+  if (G.running) return;
+  PICK = b.dataset.g; showStart();
+}));
+$("goBtn").addEventListener("click", startRun);
+$("againBtn").addEventListener("click", startRun);
+function setAppHeight() {
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  if (!standalone) return;
+  const portrait = innerHeight >= innerWidth;
+  const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  document.documentElement.style.setProperty("--appH", Math.max(full, innerHeight) + "px");
+}
+setAppHeight();
+addEventListener("resize", setAppHeight);
+showStart();
+</script>
+<script type="module">
+/* ================= 3D RENDERER (Three.js r169, vendored) =================
+   Draws the 2D simulation's state. World mapping: x (0..400) -> X = x - 200,
+   y (screen, orb at PY) -> Z = y - PY (ahead of the orb is -Z), Y is up.
+   1 unit = 1 world px, so hitboxes and the drawn shapes line up exactly. */
+import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+const W = 400, H = 700, PY = H * 0.78;
+const X = x => x - 200, Z = y => y - PY;
+const QS = new URLSearchParams(location.search);
+const MEASURE = QS.get("measure") === "1";
+const PERF = QS.get("perf") === "1";
+
+// ---- camera rig. FAR_REQ = how far ahead of the orb (world px) the whole
+// track width must be in frame. The 2D canvas first shows a hazard at most
+// 546 + its radius ahead (big rocks 589), so 610 always beats it. ----
+const [CAM_H, CAM_BACK] = (QS.get("cam") || "700,220").split(",").map(Number);
+const FAR_REQ = 610, FOLLOW = 0.12, HUD_PX = 34, ORB_NDC = -0.5;
+// Fog band: fully clear out to 556 ahead, gone by 616. When the 2D canvas
+// first shows any hazard, its nearest edge is at most 553 ahead (bar edge;
+// rocks and drones 546), so 3D never shows a hazard later than 2D and only a
+// hair earlier -- more warning would make 3D runs easier than 2D ones.
+const FOG_NEAR = 556, FOG_FAR = 616;
+
+const stage = document.getElementById("stage");
+const glc = document.getElementById("gl"), hud = document.getElementById("hud"), hx = hud.getContext("2d");
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas: glc, antialias: true, powerPreference: "high-performance" });
+} catch (e) {
+  document.getElementById("goBtn").textContent = "NO 3D ON THIS DEVICE";
+  throw e;
+}
+renderer.setClearColor(0x07060f, 1);
+const scene = new THREE.Scene();
+const BG = new THREE.Color(0x07060f);
+scene.fog = new THREE.Fog(BG, 700, 900);
+const camera = new THREE.PerspectiveCamera(60, 1, 5, 6000);
+
+// ---- glow modes: BLOOM (UnrealBloomPass) or LITE (additive halo sprites only) ----
+let MODE = QS.get("glow") === "lite" ? "lite" : "bloom";
+let autoLite = false;
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.35, 0.32);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---- textures ----
+function canvasTex(w, h, draw) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  draw(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const glowTex = canvasTex(64, 64, (g, w) => {
+  const gr = g.createRadialGradient(w/2, w/2, 0, w/2, w/2, w/2);
+  gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(.3, "rgba(255,255,255,.45)");
+  gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, w, w);
+});
+const rectTex = canvasTex(64, 64, (g, w) => {        // soft rectangle: floor light spill
+  g.shadowColor = "#fff"; g.shadowBlur = 14; g.fillStyle = "rgba(255,255,255,.9)";
+  g.fillRect(18, 18, w - 36, w - 36);
+});
+// ---- materials ----
+const basic = (color, extra = {}) => new THREE.MeshBasicMaterial({ color, ...extra });
+const add = (color, opacity, map = glowTex) => new THREE.MeshBasicMaterial({
+  color, map, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+const spriteMat = (color, opacity) => new THREE.SpriteMaterial({
+  color, map: glowTex, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+// box faces: +x, -x, +y(top), -y, +z(front, toward the camera), -z
+const faceMats = (top, front, side) => [basic(side), basic(side), basic(top), basic(side), basic(front), basic(front)];
+const barMats = faceMats(0x6ff1ff, 0x0fbcd8, 0x0a7f93);
+const edgeMat = new THREE.LineBasicMaterial({ color: 0xd8fbff });
+const unitBox = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);   // sits on the floor
+const unitEdges = new THREE.EdgesGeometry(unitBox);
+const flatQuad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+
+// ---- lights (only the lambert rocks/drones use them) ----
+scene.add(new THREE.HemisphereLight(0x9fdfff, 0x1a0830, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-120, 400, 260); scene.add(sun);
+
+// ---- world: sky, sun, ground, track, grid, rails ----
+// Horizon backdrop: stands just past where hazards finish fading in, faces
+// the camera, bottom edge on the floor. Its bottom colour IS the fog colour,
+// so the fogged floor melts into it; the retro sun rises out of the haze.
+const Z_BACK = -(FOG_FAR + 40);
+const horizonTex = canvasTex(8, 512, (g, w, h) => {      // bottom = fog colour, then haze
+  const gr = g.createLinearGradient(0, h, 0, 0);
+  gr.addColorStop(0, "#07060f"); gr.addColorStop(.10, "#1c0a33"); gr.addColorStop(.30, "#5a0f5c");
+  gr.addColorStop(.42, "#3a0b4c"); gr.addColorStop(.75, "#120a26"); gr.addColorStop(1, "#07060f");
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const sunTex = canvasTex(256, 256, (g, w) => {
+  const r = w / 2 - 2, sg = g.createLinearGradient(0, 0, 0, w);
+  sg.addColorStop(0, "#ffd45a"); sg.addColorStop(.55, "#ff7a5c"); sg.addColorStop(1, "#ff2ea6");
+  g.beginPath(); g.arc(w / 2, w / 2, r, 0, 7); g.fillStyle = sg; g.fill();
+  g.globalCompositeOperation = "destination-out";           // retro stripes, thicker toward the bottom
+  for (let i = 0; i < 7; i++) g.fillRect(0, w * (.55 + i * .065), w, 2 + i * 1.7);
+});
+const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0),
+  new THREE.MeshBasicMaterial({ map: horizonTex, fog: false, depthWrite: false }));
+backdrop.position.set(0, -2, Z_BACK); backdrop.renderOrder = -2; scene.add(backdrop);
+const sunDisc = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ map: sunTex, transparent: true, opacity: 0.8, fog: false, depthWrite: false }));
+sunDisc.renderOrder = -1; scene.add(sunDisc);
+// fit the backdrop to whatever band of sky this screen shape leaves above the course
+const _ray = new THREE.Raycaster();
+function fitBackdrop() {
+  backdrop.rotation.x = -Math.atan2(CAM_H, CAM_BACK - Z_BACK);   // lean back to face the camera
+  backdrop.scale.set(4000, 4000, 1); backdrop.updateMatrixWorld();
+  _ray.setFromCamera(new THREE.Vector2(0, 1), camera);
+  const hit = _ray.intersectObject(backdrop, false)[0];
+  const vh = hit ? Math.max(120, backdrop.worldToLocal(hit.point.clone()).y * 4000) : 400;
+  backdrop.scale.set(4000, vh * 1.15, 1); backdrop.updateMatrixWorld();
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(backdrop.quaternion);
+  const nrm = new THREE.Vector3(0, 0, 1).applyQuaternion(backdrop.quaternion);
+  // size the sun in SCREEN terms: it sits in the sky band between the HUD
+  // strip and the horizon, and skips small screens where there is no band
+  const scr = v => (1 - v.clone().project(camera).y) / 2 * SH;
+  const base = backdrop.position.clone(), yBot = scr(base);
+  const pxPerUnit = (yBot - scr(base.clone().addScaledVector(up, 100))) / 100;
+  const band = yBot - HUD_PX - 6;
+  sunDisc.visible = band > 90 && pxPerUnit > 0;
+  if (!sunDisc.visible) return;
+  const dPx = Math.min(band * 0.78, SW * 0.5);
+  const size = dPx / pxPerUnit, lift = (band * 0.44 + 0.0) / pxPerUnit;
+  sunDisc.quaternion.copy(backdrop.quaternion);
+  sunDisc.scale.set(size, size, 1);
+  sunDisc.position.copy(base).addScaledVector(up, lift).addScaledVector(nrm, 2);
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 1200).rotateX(-Math.PI / 2), basic(0x0a0816));
+ground.position.set(0, -1, Z_BACK + 600); scene.add(ground);
+const track = new THREE.Mesh(new THREE.PlaneGeometry(400, 1200).rotateX(-Math.PI / 2), basic(0x0e0b24));
+track.position.set(0, -0.5, Z_BACK + 600); scene.add(track);
+const grid = new THREE.Group(); scene.add(grid);
+{
+  const inPts = [], outPts = [];
+  for (let x = -600; x <= 1000; x += 40) {                    // lengthwise lines
+    const arr = (x >= 0 && x <= 400) ? inPts : outPts;
+    arr.push(X(x), 0, 400, X(x), 0, Z_BACK);
+  }
+  for (let z = 400; z >= Z_BACK + 40; z -= 40) {                    // crosswise lines (these scroll)
+    inPts.push(X(0), 0, z, X(400), 0, z);
+    outPts.push(X(-600), 0, z, X(0), 0, z, X(400), 0, z, X(1000), 0, z);
+  }
+  const seg = (pts, color, opacity) => {
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+  };
+  grid.add(seg(inPts, 0x19e3ff, 0.30));
+  grid.add(seg(outPts, 0xb040ff, 0.16));
+}
+for (const x of [0, 400]) {                                   // glowing magenta rails
+  const r = new THREE.Mesh(unitBox, basic(0xff2ea6)); r.scale.set(3, 3, 1300); r.position.set(X(x), 0, Z_BACK + 650); scene.add(r);
+  const s = new THREE.Mesh(flatQuad, add(0xff2ea6, 0.35, rectTex)); s.scale.set(34, 1, 1300); s.position.set(X(x), 0.3, Z_BACK + 650); scene.add(s);
+}
+
+// ---- pools ----
+function pool(make) {
+  const items = []; let used = 0;
+  return {
+    next() { if (used >= items.length) items.push(make()); const it = items[used++]; it.visible = true; return it; },
+    begin() { used = 0; },
+    end() { for (let i = used; i < items.length; i++) items[i].visible = false; },
+  };
+}
+const halos = [];                                             // lite-mode halos, dimmed under bloom
+function halo(color, size, liteOp, bloomOp) {
+  const s = new THREE.Sprite(spriteMat(color, liteOp)); s.scale.set(size, size, 1);
+  s.userData.op = [liteOp, bloomOp]; halos.push(s); return s;
+}
+// gauntlet bar piece
+const barPool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(unitBox, barMats); m.add(new THREE.LineSegments(unitEdges, edgeMat));
+  const spill = new THREE.Mesh(flatQuad, add(0x19e3ff, 0.55, rectTex)); spill.position.y = 0.4;
+  g.add(m, spill); g.userData = { m, spill }; scene.add(g); return g;
+});
+const BAR_H = 22, BAR_D = 14;
+function barPiece(x0, x1, y) {
+  if (x1 - x0 < 0.5) return;
+  const g = barPool.next(), { m, spill } = g.userData;
+  g.position.set(X((x0 + x1) / 2), 0, Z(y));
+  m.scale.set(x1 - x0, BAR_H, BAR_D); spill.scale.set(x1 - x0 + 30, 1, BAR_D + 44);
+}
+// coin
+const coinGeo = new THREE.CylinderGeometry(8, 8, 2.6, 20).rotateX(Math.PI / 2);
+const coinMats = [basic(0xc48a12), basic(0xffd966), basic(0xffd966)];
+const coinPool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(coinGeo, coinMats); m.position.y = 13;
+  const h = halo(0xffc93c, 40, 0.55, 0.22); h.position.y = 13;
+  const spill = new THREE.Mesh(flatQuad, add(0xffc93c, 0.35)); spill.scale.set(34, 1, 34); spill.position.y = 0.4;
+  g.add(m, h, spill); g.userData = { m }; scene.add(g); return g;
+});
+// meteor rock
+const rockGeo = new THREE.IcosahedronGeometry(1, 0), rockEdges = new THREE.EdgesGeometry(rockGeo);
+const rockMat = new THREE.MeshLambertMaterial({ color: 0x0fbcd8, emissive: 0x06495a, flatShading: true });
+const rockPool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(rockGeo, rockMat); m.add(new THREE.LineSegments(rockEdges, edgeMat));
+  const spill = new THREE.Mesh(flatQuad, add(0x19e3ff, 0.45)); spill.position.y = 0.4;
+  g.add(m, spill); g.userData = { m, spill }; scene.add(g); return g;
+});
+// hunter drone: 3-sided dart pointing at the player (+Z)
+const droneGeo = new THREE.ConeGeometry(0.9, 1.7, 3).rotateX(Math.PI / 2);
+const droneMat = new THREE.MeshLambertMaterial({ color: 0xd08aff, emissive: 0x8a3ad0, flatShading: true });
+const droneEdges = new THREE.EdgesGeometry(droneGeo);
+const droneEdgeMat = new THREE.LineBasicMaterial({ color: 0xf0d8ff });
+const eyeGeo = new THREE.SphereGeometry(2.8, 10, 8);
+const dronePool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(droneGeo, droneMat); m.add(new THREE.LineSegments(droneEdges, droneEdgeMat));
+  const eye = new THREE.Mesh(eyeGeo, basic(0xffffff));
+  const h = halo(0xc46bff, 70, 0.6, 0.3);
+  const spill = new THREE.Mesh(flatQuad, add(0xc46bff, 0.8)); spill.position.y = 0.4;
+  g.add(m, eye, h, spill); g.userData = { m, eye, h, spill }; scene.add(g); return g;
+});
+// orb: fresnel shader, white-hot core fading to magenta at the rim
+const orbMat = new THREE.ShaderMaterial({
+  uniforms: { c: { value: new THREE.Color(0xff2ea6) } },
+  vertexShader: `varying vec3 vN; varying vec3 vV;
+    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+  fragmentShader: `uniform vec3 c; varying vec3 vN; varying vec3 vV;
+    void main(){ float f = 1.0 - max(dot(normalize(vN), normalize(vV)), 0.0);
+      vec3 col = mix(vec3(1.0), c, smoothstep(0.05, 0.5, f)); gl_FragColor = vec4(col, 1.0);
+      #include <colorspace_fragment>
+    }`,
+});
+const orb = new THREE.Group(); scene.add(orb);
+const orbBall = new THREE.Mesh(new THREE.SphereGeometry(12, 28, 20), orbMat); orbBall.position.y = 12;
+const orbHalo = halo(0xff2ea6, 96, 0.6, 0.28); orbHalo.position.y = 12;
+const orbSpill = new THREE.Mesh(flatQuad, add(0xff2ea6, 0.7)); orbSpill.scale.set(110, 1, 110); orbSpill.position.y = 0.5;
+orb.add(orbBall, orbHalo, orbSpill);
+
+// tunnel walls: one dynamic mesh (vertex colours) + a bright inner-edge line per side
+const T_ROWS = 110, WALL_H = 32;
+const tunPos = new Float32Array(T_ROWS * 2 * 18 * 3), tunCol = new Float32Array(T_ROWS * 2 * 18 * 3);
+const tunGeo = new THREE.BufferGeometry();
+tunGeo.setAttribute("position", new THREE.BufferAttribute(tunPos, 3).setUsage(THREE.DynamicDrawUsage));
+tunGeo.setAttribute("color", new THREE.BufferAttribute(tunCol, 3).setUsage(THREE.DynamicDrawUsage));
+const tunMesh = new THREE.Mesh(tunGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+tunMesh.frustumCulled = false; scene.add(tunMesh);
+const edgeLine = () => {
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(T_ROWS * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xe8fdff })); l.frustumCulled = false; scene.add(l); return l;
+};
+const tunEdgeL = edgeLine(), tunEdgeR = edgeLine();
+const tunSpill = pool(() => { const s = new THREE.Mesh(flatQuad, add(0x19e3ff, 0.32, rectTex)); scene.add(s); return s; });
+const lin = c => new THREE.Color(c);                          // working-space (linear) colours
+const TC = { topOut: lin(0x041c24), topMid: lin(0x0a5f70), topIn: lin(0x19d8f0), faceTop: lin(0x0fbcd8), faceBot: lin(0x03202a) };
+const RIM = 26;
+
+// sparks
+const SPARK_MAX = 400;
+const spPos = new Float32Array(SPARK_MAX * 3), spCol = new Float32Array(SPARK_MAX * 3);
+const spGeo = new THREE.BufferGeometry();
+spGeo.setAttribute("position", new THREE.BufferAttribute(spPos, 3).setUsage(THREE.DynamicDrawUsage));
+spGeo.setAttribute("color", new THREE.BufferAttribute(spCol, 3).setUsage(THREE.DynamicDrawUsage));
+const sparks = new THREE.Points(spGeo, new THREE.PointsMaterial({ size: 7, vertexColors: true, map: glowTex,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+sparks.frustumCulled = false; scene.add(sparks);
+
+/* ================= CAMERA SOLVER ================= */
+// For the current stage shape, find the tightest field of view (and aim
+// point) that keeps (a) the full track width FAR_REQ ahead of the orb and
+// (b) the orb's whole lane at the orb's depth inside the frame and below the
+// HUD strip, with the camera at either extreme of its sideways follow.
+const _v = new THREE.Vector3();
+let CAMFIT = { fov: 60, lookZ: 300, aspect: 1 };
+function placeCam(cam, camX, lookZ) {
+  cam.position.set(camX, CAM_H, CAM_BACK); cam.lookAt(camX, 0, -lookZ);
+  cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+}
+function solveCamera(aspect, hudFrac) {
+  const cam = new THREE.PerspectiveCamera(60, aspect, 5, 6000);
+  const pts = [];
+  for (const x of [0, 400]) for (const y of [0, 30]) pts.push([X(x), y, -FAR_REQ]);
+  for (const x of [0, 400]) for (const y of [0, 26]) pts.push([X(x), y, 0]);
+  pts.push([X(200), 0, 40]);                                  // a little floor behind the orb
+  const topLim = 1 - 2 * hudFrac - 0.02, m = 0.985;
+  const fits = (fov, lookZ) => {
+    cam.fov = fov;
+    for (const cx of [-FOLLOW * 186, FOLLOW * 186]) {
+      placeCam(cam, cx, lookZ);
+      for (const p of pts) {
+        _v.set(p[0], p[1], p[2]).project(cam);
+        if (_v.z > 1 || Math.abs(_v.x) > m || _v.y < -m || _v.y > topLim) return false;
+      }
+    }
+    return true;
+  };
+  let best = null;
+  for (let lookZ = 0; lookZ <= 700; lookZ += 10) {
+    let lo = 10, hi = 150;
+    if (!fits(hi, lookZ)) continue;
+    for (let k = 0; k < 22; k++) { const mid = (lo + hi) / 2; if (fits(mid, lookZ)) hi = mid; else lo = mid; }
+    cam.fov = hi; placeCam(cam, 0, lookZ);
+    if (_v.set(0, 12, 0).project(cam).y > ORB_NDC) continue;     // orb rides low, like 2D (78% down)
+    if (!best || hi < best.fov) best = { fov: hi, lookZ };
+  }
+  best = best || { fov: 100, lookZ: 300 };
+  // readability: share of the screen width the track spans at the orb and at FAR_REQ
+  cam.fov = best.fov; placeCam(cam, 0, best.lookZ);
+  const wAt = z => { const a = _v.set(X(0), 0, z).project(cam).x, b = _v.set(X(400), 0, z).project(cam).x; return +((b - a) / 2).toFixed(3); };
+  const yAt = z => +_v.set(0, 0, z).project(cam).y.toFixed(3);
+  const pitch = +(Math.atan2(CAM_H, CAM_BACK + best.lookZ) * 180 / Math.PI).toFixed(1);
+  return { ...best, pitch, nearW: wAt(0), farW: wAt(-FAR_REQ), orbY: yAt(0), farY: yAt(-FAR_REQ) };
+}
+// view depth of a world point for the current camera (fog runs on view depth)
+function viewDepth(x, y, z) { _v.set(x, y, z).applyMatrix4(camera.matrixWorldInverse); return -_v.z; }
+
+let SW = 1, SH = 1, DPR = 1;
+function resize() {
+  SW = Math.max(1, stage.clientWidth); SH = Math.max(1, stage.clientHeight);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(DPR); renderer.setSize(SW, SH, false);
+  composer.setPixelRatio(DPR); composer.setSize(SW, SH);
+  hud.width = SW * DPR; hud.height = SH * DPR; hx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const fit = solveCamera(SW / SH, HUD_PX / SH);
+  CAMFIT = { ...fit, aspect: SW / SH };
+  camera.aspect = SW / SH; camera.fov = fit.fov;
+  placeCam(camera, 0, fit.lookZ);
+  fitBackdrop();
+  setFog();
+  if (!G.running) still();
+}
+function setFog() {
+  // Normal days: hazards are fully clear out to FOG_NEAR ahead, then melt
+  // into the horizon. FOG twist: the world ends ~95-240 from the orb,
+  // like the 2D radial fog.
+  const d0 = viewDepth(0, 0, 0);
+  const per = (viewDepth(0, 0, -100) - d0) / 100;             // view depth per world px ahead
+  backdrop.visible = G.mod !== "fog"; if (G.mod === "fog") sunDisc.visible = false;
+  if (G.mod === "fog") { scene.fog.near = d0 + 95 * per; scene.fog.far = d0 + 240 * per; }
+  else { scene.fog.near = d0 + FOG_NEAR * per; scene.fog.far = d0 + FOG_FAR * per; }
+}
+
+/* ================= DRAW THE SIM STATE ================= */
+const _cols = {}; const colOf = h => _cols[h] || (_cols[h] = new THREE.Color(h));
+let scroll = 0, camX = 0;
+function drawWorld(py, dt) {
+  const tNow = G.t;
+  // camera: slight sideways follow + hit shake
+  camX += (X(G.px) * FOLLOW - camX) * Math.min(1, dt * 6);
+  const sh = G.shake * 0.7;
+  const jx = (Math.random() - .5) * sh, jy = (Math.random() - .5) * sh;
+  if (G.shake > 0) G.shake = Math.max(0, G.shake - 60 * 0.016);
+  camera.position.set(camX + jx, CAM_H + jy, CAM_BACK);
+  camera.lookAt(camX + jx, 0, -CAMFIT.lookZ);
+  camera.updateMatrixWorld();
+  grid.position.z = scroll % 40;
+
+  // orb (blinks while invulnerable, like 2D)
+  orb.position.set(X(G.px), 0, 0);
+  orb.visible = !(G.inv > 0 && Math.floor(G.t * 12) % 2 === 0);
+
+  const zFar = -(FOG_FAR + 30), zNear = CAM_BACK + 40;   // past the fog: nothing to draw (tall walls would mask the horizon)
+  const inView = y => { const z = Z(y); return z > zFar && z < zNear; };
+
+  // coins
+  coinPool.begin();
+  G.coinDots.forEach((c, i) => {
+    if (c.got || !inView(c.y)) return;
+    const g = coinPool.next(); g.position.set(X(c.x), 0, Z(c.y));
+    g.userData.m.rotation.y = Math.sin(tNow * 3 + i * 0.9) * 0.95;   // wobble, never edge-on
+  });
+  coinPool.end();
+
+  // hazards
+  barPool.begin(); rockPool.begin(); dronePool.begin(); tunSpill.begin();
+  tunMesh.visible = tunEdgeL.visible = tunEdgeR.visible = false;
+  const gid = PICK;
+  if (gid === "gauntlet") {
+    for (const o of G.obstacles) {
+      if (!inView(o.y)) continue;
+      barPiece(0, o.gapX, o.y); barPiece(o.gapX + o.gapW, W, o.y);
+    }
+  } else if (gid === "meteor") {
+    for (const r of G.rocks) {
+      if (!inView(r.y)) continue;
+      const g = rockPool.next(), { m, spill } = g.userData;
+      g.position.set(X(r.x), 0, Z(r.y));
+      m.scale.setScalar(r.r * 1.08); m.position.y = r.r;
+      m.rotation.set(r.y * 0.018 * r.mul, r.x * 0.02, 0);
+      spill.scale.set(r.r * 3.6, 1, r.r * 3.6);
+    }
+  } else if (gid === "hunter") {
+    G.things.forEach((d, i) => {
+      if (!inView(d.y)) return;
+      const g = dronePool.next(), { m, eye, h, spill } = g.userData;
+      const hover = 15 + Math.sin(tNow * 5 + i) * 2.5;
+      g.position.set(X(d.x), 0, Z(d.y));
+      m.scale.set(d.r, d.r, d.r); m.position.y = hover;
+      m.rotation.z = Math.sin(tNow * 3 + i) * 0.35;           // banking wobble (visual only)
+      eye.position.set(0, hover + d.r * 0.55, d.r * 0.1);
+      h.position.y = hover; spill.scale.set(d.r * 4.2, 1, d.r * 4.2);
+    });
+  } else if (gid === "tunnel") {
+    drawTunnel();
+  }
+  barPool.end(); rockPool.end(); dronePool.end(); tunSpill.end();
+
+  // sparks (render-rate life, as in 2D draw)
+  let n = 0;
+  for (let i = G.sparks.length - 1; i >= 0; i--) {
+    const s = G.sparks[i];
+    s.life -= 0.016; if (s.life <= 0) { G.sparks.splice(i, 1); continue; }
+    s.x += s.vx * 0.016; s.y += s.vy * 0.016;
+    if (n >= SPARK_MAX) continue;
+    const up = 12 + (0.5 - s.life) * 40;
+    spPos[n*3] = X(s.x); spPos[n*3+1] = up; spPos[n*3+2] = Z(s.y);
+    const c = colOf(s.color), k = Math.min(1, s.life * 2);
+    spCol[n*3] = c.r * k; spCol[n*3+1] = c.g * k; spCol[n*3+2] = c.b * k; n++;
+  }
+  spGeo.setDrawRange(0, n);
+  spGeo.attributes.position.needsUpdate = spGeo.attributes.color.needsUpdate = true;
+}
+
+function drawTunnel() {
+  tunMesh.visible = tunEdgeL.visible = tunEdgeR.visible = true;
+  // rows anchored to course distance (every 16 px, the path's own sample
+  // spacing) so walls don't shimmer; 2D samples the same path the same way
+  const zFar = -(FOG_FAR + 30), zNear = CAM_BACK + 40;   // past the fog: nothing to draw (tall walls would mask the horizon)
+  const kMin = Math.floor((G.traveled - PY - zNear) / 16), kMax = Math.ceil((G.traveled - PY - zFar) / 16);
+  const rows = [];
+  for (let k = Math.max(kMin, Math.floor((G.traveled - PY - zNear) / 16)); k <= kMax && rows.length < T_ROWS; k++) {
+    const dist = k * 16, y = G.traveled - dist;
+    let xl, xr;
+    if (dist < 0) { xl = -40; xr = W + 40; }
+    else {
+      const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))] || { x: W / 2 };
+      const hw = G.tunnelW(dist); xl = seg.x - hw; xr = seg.x + hw;
+    }
+    rows.push([Z(y), X(xl), X(xr)]);
+  }
+  let v = 0;
+  const P = (x, y, z, c) => { tunPos[v*3] = x; tunPos[v*3+1] = y; tunPos[v*3+2] = z; tunCol[v*3] = c.r; tunCol[v*3+1] = c.g; tunCol[v*3+2] = c.b; v++; };
+  const OUT = 700;
+  for (let i = 0; i + 1 < rows.length; i++) {
+    const [z0, l0, r0] = rows[i], [z1, l1, r1] = rows[i + 1];
+    // left wall top (outer -> inner gradient) + inner face
+    P(-OUT, WALL_H, z0, TC.topOut); P(l0 - RIM, WALL_H, z0, TC.topMid); P(l1 - RIM, WALL_H, z1, TC.topMid);
+    P(-OUT, WALL_H, z0, TC.topOut); P(l1 - RIM, WALL_H, z1, TC.topMid); P(-OUT, WALL_H, z1, TC.topOut);
+    P(l0 - RIM, WALL_H, z0, TC.topMid); P(l0, WALL_H, z0, TC.topIn); P(l1, WALL_H, z1, TC.topIn);
+    P(l0 - RIM, WALL_H, z0, TC.topMid); P(l1, WALL_H, z1, TC.topIn); P(l1 - RIM, WALL_H, z1, TC.topMid);
+    P(l0, WALL_H, z0, TC.faceTop); P(l0, 0, z0, TC.faceBot); P(l1, 0, z1, TC.faceBot);
+    P(l0, WALL_H, z0, TC.faceTop); P(l1, 0, z1, TC.faceBot); P(l1, WALL_H, z1, TC.faceTop);
+    // right wall
+    P(r0 + RIM, WALL_H, z0, TC.topMid); P(OUT, WALL_H, z0, TC.topOut); P(OUT, WALL_H, z1, TC.topOut);
+    P(r0 + RIM, WALL_H, z0, TC.topMid); P(OUT, WALL_H, z1, TC.topOut); P(r1 + RIM, WALL_H, z1, TC.topMid);
+    P(r0, WALL_H, z0, TC.topIn); P(r0 + RIM, WALL_H, z0, TC.topMid); P(r1 + RIM, WALL_H, z1, TC.topMid);
+    P(r0, WALL_H, z0, TC.topIn); P(r1 + RIM, WALL_H, z1, TC.topMid); P(r1, WALL_H, z1, TC.topIn);
+    P(r0, WALL_H, z0, TC.faceTop); P(r1, 0, z1, TC.faceBot); P(r0, 0, z0, TC.faceBot);
+    P(r0, WALL_H, z0, TC.faceTop); P(r1, WALL_H, z1, TC.faceTop); P(r1, 0, z1, TC.faceBot);
+  }
+  tunGeo.setDrawRange(0, v);
+  tunGeo.attributes.position.needsUpdate = tunGeo.attributes.color.needsUpdate = true;
+  const eL = tunEdgeL.geometry.attributes.position.array, eR = tunEdgeR.geometry.attributes.position.array;
+  rows.forEach(([z, l, r], i) => { eL.set([l, WALL_H + 0.3, z], i * 3); eR.set([r, WALL_H + 0.3, z], i * 3); });
+  tunEdgeL.geometry.setDrawRange(0, rows.length); tunEdgeR.geometry.setDrawRange(0, rows.length);
+  tunEdgeL.geometry.attributes.position.needsUpdate = tunEdgeR.geometry.attributes.position.needsUpdate = true;
+  // floor light spill along the channel walls, every 4th row
+  for (let i = 0; i + 4 < rows.length; i += 4) {
+    const [z0, l0, r0] = rows[i], [z1, l1, r1] = rows[i + 4], zm = (z0 + z1) / 2, len = Math.abs(z1 - z0) + 8;
+    for (const xm of [(l0 + l1) / 2, (r0 + r1) / 2]) {
+      const s = tunSpill.next(); s.position.set(xm, 0.4, zm); s.scale.set(46, 1, len);
+    }
+  }
+}
+
+/* ================= HUD (2D overlay, same layout as the live HUD) ================= */
+const _p = new THREE.Vector3();
+function toScreen(x, y, z) { _p.set(x, y, z).project(camera); return [(_p.x + 1) / 2 * SW, (1 - _p.y) / 2 * SH, _p.z]; }
+function drawHud(showRunHud) {
+  hx.clearRect(0, 0, SW, SH);
+  hx.font = "bold 12px Menlo, monospace"; hx.textAlign = "center";
+  for (let i = G.floaters.length - 1; i >= 0; i--) {
+    const f = G.floaters[i];
+    f.life -= 0.016; if (f.life <= 0) { G.floaters.splice(i, 1); continue; }
+    f.y -= 34 * 0.016;
+    const [sx, sy] = toScreen(X(f.x), 40 + (0.9 - f.life) * 30, Z(f.y));
+    hx.globalAlpha = Math.min(1, f.life * 1.6); hx.fillStyle = f.color;
+    hx.fillText(f.txt, sx, sy); hx.globalAlpha = 1;
+  }
+  if (!showRunHud) return;
+  hx.shadowColor = "rgba(7,6,15,.95)"; hx.shadowBlur = 6;
+  hx.fillStyle = "#e8e6ff"; hx.font = "bold 15px Menlo, monospace"; hx.textAlign = "left";
+  hx.fillText("♥".repeat(Math.max(0, G.hearts)), 12, 24);
+  hx.textAlign = "center";
+  const tier = comboTier();
+  hx.fillStyle = "#ffc93c";
+  hx.fillText(String(G.coins) + (tier > 1 ? "  x" + tier : ""), SW / 2, 24);
+  hx.textAlign = "right";
+  const left = Math.max(0, RUN_SECS() - G.t);
+  hx.fillStyle = left < 10 ? "#ff2ea6" : "#8a86b8";
+  hx.fillText(Math.ceil(left) + "s", SW - 12, 24);
+  hx.shadowBlur = 0;
+}
+
+function applyMode() {
+  const bl = MODE === "bloom";
+  for (const s of halos) s.material.opacity = s.userData.op[bl ? 1 : 0];
+  document.getElementById("glowBtn").textContent = "GLOW: " + (bl ? "BLOOM" : "LITE") + (autoLite ? " (AUTO)" : "");
+}
+function present() {
+  if (MODE === "bloom") composer.render(); else renderer.render(scene, camera);
+}
+
+/* ================= PERF + LOOK-AHEAD MEASUREMENT ================= */
+const perf = { intervals: [], cpu: [], frames: 0 };
+const vis = new Map();         // hazard -> {t2, t3, tReach}
+function measure(py) {
+  const band = 1 - 2 * (HUD_PX / SH);
+  const fogAt = (x, y, z) => { const d = viewDepth(x, y, z); return Math.max(0, Math.min(1, (d - scene.fog.near) / (scene.fog.far - scene.fog.near))); };
+  const seen3 = (x0, x1, y0, y1, z0, z1) => {
+    for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) {
+      _p.set(x, y, z).project(camera);
+      if (_p.z < 1 && _p.x > -1 && _p.x < 1 && _p.y > -1 && _p.y < band && fogAt(x, y, z) <= 0.5) return true;
+    }
+    return false;
+  };
+  const fog2 = (x, y) => G.mod !== "fog" || Math.hypot(x - G.px, y - py) < 167;   // 2D radial fog half-alpha
+  const track = (key, s2, s3, reached) => {
+    let e = vis.get(key); if (!e) { e = { t2: null, t3: null, tReach: null }; vis.set(key, e); }
+    if (e.t2 === null && s2) e.t2 = G.t;
+    if (e.t3 === null && s3) e.t3 = G.t;
+    if (e.tReach === null && reached) e.tReach = G.t;
+  };
+  if (PICK === "gauntlet") for (const o of G.obstacles) {
+    if (o.y < -900) continue;
+    const s2 = o.y + 7 > 0 && fog2(Math.max(0, Math.min(W, G.px)), o.y);
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(o.y) - BAR_D / 2, Z(o.y) + BAR_D / 2);
+    track(o, s2, s3, o.y > py - 12);
+  }
+  if (PICK === "meteor") for (const r of G.rocks) {
+    if (r.y < -900) continue;
+    track(r, r.y + r.r > 0 && fog2(r.x, r.y), seen3(X(r.x - r.r), X(r.x + r.r), 0, 2 * r.r, Z(r.y) - r.r, Z(r.y) + r.r), r.y > py - r.r - 10);
+  }
+  if (PICK === "hunter") for (const d of G.things) {
+    if (d.y < -900) continue;
+    track(d, d.y + d.r > 0 && fog2(d.x, d.y), seen3(X(d.x - d.r), X(d.x + d.r), 10, 22, Z(d.y) - d.r, Z(d.y) + d.r), d.y > py - d.r - 10);
+  }
+  if (PICK === "tunnel") {
+    // every 64 px of course is one "hazard": its two wall edges
+    const k0 = Math.floor((G.traveled - py) / 64), k1 = Math.ceil((G.traveled + 900) / 64);
+    for (let k = Math.max(0, k0); k <= k1; k++) {
+      const dist = k * 64, y = G.traveled - dist;
+      const seg = G.path[Math.min(G.path.length - 1, Math.round(dist / 16))]; if (!seg) continue;
+      const hw = G.tunnelW(dist), xl = seg.x - hw, xr = seg.x + hw;
+      const s2 = y > 0 && fog2(seg.x, y);
+      const s3 = seen3(X(Math.max(0, xl)), X(Math.max(0, xl)), 0, WALL_H, Z(y), Z(y)) && seen3(X(Math.min(W, xr)), X(Math.min(W, xr)), 0, WALL_H, Z(y), Z(y));
+      track("row" + k, s2, s3, y > py);
+    }
+  }
+}
+function measureReport() {
+  const rows = [...vis.values()].filter(e => e.t2 !== null && e.t2 > 0.3 && e.tReach !== null);
+  const lead = rows.map(e => (e.t2 - (e.t3 ?? Infinity)));
+  const warn2 = rows.map(e => e.tReach - e.t2), warn3 = rows.map(e => e.tReach - (e.t3 ?? e.tReach));
+  const mn = a => a.length ? Math.min(...a) : null, avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  return { n: rows.length, minLead: mn(lead), avgLead: avg(lead), neverSeen3: rows.filter(e => e.t3 === null).length,
+           minWarn2: mn(warn2), minWarn3: mn(warn3), avgWarn2: avg(warn2), avgWarn3: avg(warn3), cam: CAMFIT, fog: [scene.fog.near, scene.fog.far] };
+}
+
+/* ================= HOOKS FOR THE SIM SCRIPT ================= */
+function still() {                                          // static backdrop behind the overlays
+  setFog(); camX = 0; drawWorld(PY, 0); drawHud(false); present();
+}
+let runFrames = 0;
+window.R3D = {
+  ready: true,
+  onStart() { runFrames = 0; scroll = 0; vis.clear(); perf.intervals = []; perf.cpu = []; setFog(); },
+  onEnd() { drawHud(false); present(); },
+  frame(py, dt, vs, frameMs) {
+    const t0 = performance.now();
+    scroll += vs;
+    drawWorld(py, dt);
+    drawHud(true);
+    present();
+    if (PERF) renderer.getContext().finish();
+    const cpu = performance.now() - t0;
+    runFrames++;
+    if (runFrames > 20) { perf.intervals.push(frameMs); perf.cpu.push(cpu); }
+    if (MEASURE) measure(py);
+    // BLOOM that can't hold ~60fps drops itself to LITE once, early in the first run
+    if (MODE === "bloom" && !autoLite && perf.intervals.length === 90) {
+      const s = [...perf.intervals].sort((a, b) => a - b), med = s[s.length >> 1];
+      if (med > 19.5) { MODE = "lite"; autoLite = true; applyMode(); }
+    }
+  },
+  still, measureReport,
+  perfReport() {
+    const q = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(2); };
+    return { mode: MODE, autoLite, frames: perf.intervals.length, intervalP50: q(perf.intervals, .5), intervalP95: q(perf.intervals, .95),
+             cpuP50: q(perf.cpu, .5), cpuP95: q(perf.cpu, .95), dpr: DPR, size: [SW, SH], cam: CAMFIT };
+  },
+  setMode(m) { MODE = m; autoLite = false; applyMode(); if (!G.running) still(); },
+  info() { return { renderer: renderer.getContext().getParameter(renderer.getContext().VERSION), cam: CAMFIT, fog: [scene.fog.near, scene.fog.far] }; },
+};
+document.getElementById("glowBtn").addEventListener("click", () => window.R3D.setMode(MODE === "bloom" ? "lite" : "bloom"));
+new ResizeObserver(() => resize()).observe(stage);
+addEventListener("resize", resize);
+applyMode();
+resize();
+const go = document.getElementById("goBtn"); go.disabled = false; go.textContent = "START";
+</script>
+</body>
+</html>
