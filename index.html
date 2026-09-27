@@ -1010,6 +1010,24 @@ const comboTier = () => Math.min(5, 1 + Math.floor(G.combo / 8));
 // and hazard rendering. Steering, coins, boosts, hearts, scoring, fog, HUD,
 // and the duel board are shared. modName/modDesc reskin the daily twist ids
 // that mean something different per game.
+// seconds until beam b swaps sides (next zero crossing of its sine)
+function laserSwapIn(b) {
+  const w = 2 * Math.PI / b.period, th = G.t * w + b.phase;
+  const r = ((th % Math.PI) + Math.PI) % Math.PI;
+  return (Math.PI - r) / w;
+}
+// the swap warning: flicker only BEFORE a swap, for a fixed 0.6s (was |sin|<0.3,
+// which flickered after a swap too and gave only ~0.15s of warning)
+const LASER_WARN = 0.6;
+// Laser Grid tuning (Felix 2026-09-27: "a little too impossible"). From
+// LASER_EASY_FROM on, beams swap sides slower and sit farther apart. Date-gated
+// so no day mixes the two and past days' reel footage replays exactly.
+const LASER_EASY_FROM = "20261005";
+function laserTune(ds) {
+  return (window.__laserTune) || ((ds || "") >= LASER_EASY_FROM
+    ? { p0: 2.4, pd: 0.15, s0: 200, sd: 0.12 }
+    : { p0: 1.7, pd: 0.25, s0: 155, sd: 0.18 });
+}
 const GAMES = {
   gauntlet: {
     name: "THE GAUNTLET",
@@ -1208,13 +1226,14 @@ const GAMES = {
       // flickering as its window closes.
       const total = avgCourseSpeed() * RUN_SECS() * 1.15;
       const thick = G.mod === "squeeze" ? 13 : 8;
+      const LT = laserTune(G.ds);
       let y = -300;
       while (y > -total) {
         const depth = Math.min(1, -y / total);
         G.beams.push({
           y,
           split: 90 + G.rng() * (W - 180),
-          period: (1.7 + G.rng() * 1.4) * (G.mod === "drift" ? 0.55 : 1) * (1 - 0.25 * depth),
+          period: (LT.p0 + G.rng() * 1.4) * (G.mod === "drift" ? 0.55 : 1) * (1 - LT.pd * depth),
           phase: G.rng() * Math.PI * 2,
           thick, passed: false,
         });
@@ -1222,7 +1241,7 @@ const GAMES = {
           const b = G.beams[G.beams.length - 1];
           G.coinDots.push({ y: y - 64, x: b.split + (G.rng() - .5) * 44, got: false });
         }
-        y -= (155 + G.rng() * 85) * (1 - 0.18 * depth);
+        y -= (LT.s0 + G.rng() * 85) * (1 - LT.sd * depth);
       }
     },
     // sin > 0 -> LEFT side firing; the orb is safe on the dark side
@@ -1246,7 +1265,7 @@ const GAMES = {
         if (b.y < -20 || b.y > H + 20) continue;
         const s = Math.sin(G.t * 2 * Math.PI / b.period + b.phase);
         const hot = s > 0 ? 0 : 1;
-        const closing = Math.abs(s) < 0.3;   // dark side about to flip
+        const closing = laserSwapIn(b) < LASER_WARN;   // dark side about to flip
         const seg = [[0, b.split], [b.split, W]];
         for (let i = 0; i < 2; i++) {
           const [x0, x1] = seg[i];
@@ -1881,6 +1900,7 @@ function courseReset(playerCfg, boost, at) {
   // `at` = {ds, mod, game} rebuilds a PAST day's course (champion reel
   // footage); runs always pass nothing and get today's.
   G.rng = mulberry32(seedFromDate(at ? at.ds : today())); // same course for everyone
+  G.ds = at ? at.ds : today();                          // laser tuning is date-gated
   G.mod = at ? at.mod : todayMod().id;                 // same twist for everyone
   G.game = at ? at.game : currentGame();               // same game for everyone today
   G.t = 0; G.px = W/2; G.targetX = W/2;
@@ -2978,7 +2998,7 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20260925-hcap-auto";
+const BUILD = "20260927-laser-ease";
 const PTR = { y0: null, x0: 0, d: 0, busy: false, fit: null };
 const PTR_GO = 64, PTR_MAX = 110;
 function ptrScreen() {

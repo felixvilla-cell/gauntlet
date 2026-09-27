@@ -489,6 +489,24 @@ const G = {
 const comboTier = () => Math.min(5, 1 + Math.floor(G.combo / 8));
 // ---- index.html: the four games in this preview (render() methods are the
 //      2D ones and are never called here; the 3D renderer draws instead) ----
+// seconds until beam b swaps sides (next zero crossing of its sine)
+function laserSwapIn(b) {
+  const w = 2 * Math.PI / b.period, th = G.t * w + b.phase;
+  const r = ((th % Math.PI) + Math.PI) % Math.PI;
+  return (Math.PI - r) / w;
+}
+// the swap warning: flicker only BEFORE a swap, for a fixed 0.6s (was |sin|<0.3,
+// which flickered after a swap too and gave only ~0.15s of warning)
+const LASER_WARN = 0.6;
+// Laser Grid tuning (Felix 2026-09-27: "a little too impossible"). From
+// LASER_EASY_FROM on, beams swap sides slower and sit farther apart. Date-gated
+// so no day mixes the two and past days' reel footage replays exactly.
+const LASER_EASY_FROM = "00000000";
+function laserTune(ds) {
+  return (window.__laserTune) || ((ds || "") >= LASER_EASY_FROM
+    ? { p0: 2.4, pd: 0.15, s0: 200, sd: 0.12 }
+    : { p0: 1.7, pd: 0.25, s0: 155, sd: 0.18 });
+}
 const GAMES = {
   gauntlet: {
     name: "THE GAUNTLET",
@@ -734,13 +752,14 @@ const GAMES = {
     reset() {
       const total = avgCourseSpeed() * RUN_SECS() * 1.15;
       const thick = G.mod === "squeeze" ? 13 : 8;
+      const LT = laserTune(G.ds);
       let y = -300;
       while (y > -total) {
         const depth = Math.min(1, -y / total);
         G.beams.push({
           y,
           split: 90 + G.rng() * (W - 180),
-          period: (1.7 + G.rng() * 1.4) * (G.mod === "drift" ? 0.55 : 1) * (1 - 0.25 * depth),
+          period: (LT.p0 + G.rng() * 1.4) * (G.mod === "drift" ? 0.55 : 1) * (1 - LT.pd * depth),
           phase: G.rng() * Math.PI * 2,
           thick, passed: false,
         });
@@ -748,7 +767,7 @@ const GAMES = {
           const b = G.beams[G.beams.length - 1];
           G.coinDots.push({ y: y - 64, x: b.split + (G.rng() - .5) * 44, got: false });
         }
-        y -= (155 + G.rng() * 85) * (1 - 0.18 * depth);
+        y -= (LT.s0 + G.rng() * 85) * (1 - LT.sd * depth);
       }
     },
     hotSide(b) { return Math.sin(G.t * 2 * Math.PI / b.period + b.phase) > 0 ? 0 : 1; },
@@ -770,7 +789,7 @@ const GAMES = {
         if (b.y < -20 || b.y > H + 20) continue;
         const s = Math.sin(G.t * 2 * Math.PI / b.period + b.phase);
         const hot = s > 0 ? 0 : 1;
-        const closing = Math.abs(s) < 0.3;
+        const closing = laserSwapIn(b) < LASER_WARN;
         const seg = [[0, b.split], [b.split, W]];
         for (let i = 0; i < 2; i++) {
           const [x0, x1] = seg[i];
@@ -1343,6 +1362,7 @@ function courseReset(playerCfg, boost, at) {
   // `at` = {ds, mod, game} rebuilds a PAST day's course (champion reel
   // footage); runs always pass nothing and get today's.
   G.rng = mulberry32(seedFromDate(at ? at.ds : today())); // same course for everyone
+  G.ds = at ? at.ds : today();                          // laser tuning is date-gated
   G.mod = at ? at.mod : todayMod().id;                 // same twist for everyone
   G.game = at ? at.game : currentGame();               // same game for everyone today
   G.t = 0; G.px = W/2; G.targetX = W/2;
@@ -1781,12 +1801,14 @@ const laserSegPool = pool(() => {
   const mat = basic(0xff3355, { transparent: true });
   const m = new THREE.Mesh(unitBox, mat); m.userData = { mat }; scene.add(m); return m;
 });
-function laserSeg(x0, x1, y, opacity, bright) {
+function laserSeg(x0, x1, y, opacity, bright, thick = 8, warn = false) {
   if (x1 - x0 < 0.5) return;
   const m = laserSegPool.next(), mat = m.userData.mat;
   m.position.set(X((x0 + x1) / 2), 0, Z(y));
-  m.scale.set(x1 - x0, bright ? 16 : 3, bright ? 16 : 4);
-  mat.opacity = opacity; mat.color.set(bright ? 0xff5577 : 0xff3355);
+  // hot = full beam (depth matches the 2D bar, THICK BEAMS included); dark =
+  // a low wire, drawn thicker while it warns so the flicker reads down the track
+  m.scale.set(x1 - x0, bright ? 16 : (warn ? 8 : 5), bright ? thick * 2 : (warn ? 8 : 6));
+  mat.opacity = opacity; mat.color.set(bright ? 0xff5577 : (warn ? 0xff7a90 : 0xff3355));
 }
 const laserNodeGeo = new THREE.SphereGeometry(5, 12, 8), laserNodeMat = basic(0x0fbcd8);
 const laserNodePool = pool(() => { const m = new THREE.Mesh(laserNodeGeo, laserNodeMat); scene.add(m); return m; });
@@ -2141,12 +2163,16 @@ function drawLaser() {
     if (!inView(b.y)) continue;
     const s = Math.sin(G.t * 2 * Math.PI / b.period + b.phase);
     const hot = s > 0 ? 0 : 1;
-    const closing = Math.abs(s) < 0.3;
+    const closing = laserSwapIn(b) < LASER_WARN;
     const seg = [[0, b.split], [b.split, W]];
     for (let i = 0; i < 2; i++) {
       const [x0, x1] = seg[i];
-      if (i === hot) laserSeg(x0, x1, b.y, 1, true);
-      else laserSeg(x0, x1, b.y, (closing && Math.floor(G.t * 14) % 2 === 0) ? 0.5 : 0.16, false);
+      // 3D-only readability (Felix 2026-09-27): brighter dark side, and during
+      // the swap warning BOTH halves blink -- the dark wire flashes (about to
+      // fire) and the lit beam dims (about to shut off). Rules unchanged.
+      const blink = closing && Math.floor(G.t * 12) % 2 === 0;
+      if (i === hot) laserSeg(x0, x1, b.y, blink ? 0.4 : 1, true, b.thick);
+      else laserSeg(x0, x1, b.y, closing ? (blink ? 0.95 : 0.35) : 0.32, false, b.thick, closing);
     }
     for (const ex of [4, b.split, W - 4]) {
       const nd = laserNodePool.next(); nd.position.set(X(ex), 8, Z(b.y));
