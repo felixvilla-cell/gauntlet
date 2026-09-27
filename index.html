@@ -16,6 +16,13 @@
 <meta property="og:image" content="https://felixvilla-cell.github.io/gauntlet/og.png">
 <meta property="og:url" content="https://felixvilla-cell.github.io/gauntlet/">
 <meta name="twitter:card" content="summary_large_image">
+<!-- 3D renderer (r3d.js, from Mon Sep 28 2026): three.js r169 vendored, no CDN -->
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three-0.169.0/three.module.min.js",
+  "three/addons/": "./vendor/three-0.169.0/addons/"
+} }
+</script>
 <style>
   :root {
     --bg: #07060f;
@@ -48,6 +55,17 @@
     overflow-y: auto; overflow-x: hidden; background: var(--bg);
   }
   .hidden { display: none !important; }
+  /* 3D play layer (r3d.js): full screen under the menus during a 3D run only.
+     Hidden with visibility (not display) so its size stays measured. */
+  #r3d {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 100vw; height: var(--appH, auto); z-index: 10;
+    padding: max(6px, env(safe-area-inset-top)) 0 env(safe-area-inset-bottom);
+    display: flex; flex-direction: column; background: var(--bg);
+  }
+  #r3d.off { visibility: hidden; pointer-events: none; }
+  #r3dStage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  #r3dGl, #r3dHud { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  #r3dHud { pointer-events: none; background: transparent; }
   /* home fits one screen (Felix, 2026-09-24): fitHome() shrinks this box
      with CSS zoom when the content would otherwise scroll */
   .fit { width: 100%; display: flex; flex-direction: column; align-items: center; }
@@ -539,6 +557,8 @@
   <div class="toast" id="toast"></div>
   <div id="ptr" aria-hidden="true">PULL TO REFRESH</div>
 </div>
+<!-- 3D play layer: r3d.js draws the run here from THREE_D_FROM on -->
+<div id="r3d" class="off"><div id="r3dStage"><canvas id="r3dGl"></canvas><canvas id="r3dHud"></canvas></div></div>
 
 <script src="config.js"></script>
 <script>
@@ -1925,10 +1945,38 @@ function worldSpeed() {
   return ramp * G.speedScale * G.slow * (G.mod === "turbo" ? 1.15 : 1);
 }
 
+/* ================= 3D LOOK (Felix, 2026-09-27: live from Mon Sep 28) =================
+   r3d.js (loaded at page load, see the import() near BUILD) draws the run in 3D;
+   the sim above is untouched, so scores are identical to 2D. Decided per RUN at
+   run start: a run started before midnight stays 2D, the next run after
+   midnight is 3D (no reload needed). Falls back to 2D silently whenever r3d.js,
+   three.js or WebGL isn't available, and mid-run if the renderer throws or the
+   GL context is lost. Kill switches: ?2d=1 (one device, rides the URL) and
+   force2d: true in config.js (everyone, on their next app open). */
+const THREE_D_FROM = "20260928";
+const NO3D = qs.get("2d") === "1" || CFG.force2d === true;
+let R3D_ON = false;
+function use3D() {
+  if (NO3D) return false;
+  const r = window.R3D;
+  if (!r || !r.ready) return false;
+  try { if (!r.ok()) return false; } catch { return false; }
+  return today() >= THREE_D_FROM || (PREVIEW && qs.get("3d") === "1");
+}
+function r3dOff() {
+  R3D_ON = false;
+  document.getElementById("r3d").classList.add("off");
+}
+
 function startRun() {
   attractStop();
   const p = ROSTER.find(r => r.id === store.player);
   courseReset(p, G.pickedBoost || "shield");
+  R3D_ON = use3D();
+  if (R3D_ON) {
+    try { document.getElementById("r3d").classList.remove("off"); window.R3D.onStart(); }
+    catch { r3dOff(); }
+  }
   show("game");
   G.running = true; G.lastTs = performance.now();
   Music.start(Object.keys(GAMES).find(k => GAMES[k] === G.game) || "gauntlet");
@@ -1977,6 +2025,7 @@ function loop(ts) {
   // phone turned sideways: hold the run still until it's upright again
   if (SIDEWAYS.matches) { G.lastTs = ts; requestAnimationFrame(loop); return; }
   const dt = Math.min((ts - G.lastTs) / 1000, 0.05);
+  const frameMs = ts - G.lastTs;          // 3D perf stats only
   G.lastTs = ts; G.t += dt;
   if (G.t >= RUN_SECS()) { G.finished = true; endRun(false); return; }
 
@@ -2019,7 +2068,11 @@ function loop(ts) {
         floatText(c.x, c.y - 20, "COMBO x" + tier, "#ffc93c");
     }
   }
-  draw(py);
+  // render: 3D reads the same state 2D does; any 3D trouble drops this run to 2D
+  if (R3D_ON) {
+    try { if (!window.R3D.ok()) throw 0; window.R3D.frame(py, dt, vs, frameMs); }
+    catch { r3dOff(); draw(py); }
+  } else draw(py);
   requestAnimationFrame(loop);
 }
 
@@ -2112,23 +2165,28 @@ function pointerX(e) {
 // finger cover the orb and stop-points never felt lined up with the coins
 // (Felix, 2026-07-12). Slight >1 sensitivity so a thumb can sweep full width.
 let touchAnchorX = null, orbAnchorX = null;
-cv.addEventListener("touchstart", e => {
+// The same handlers go on the 3D play layer, which sits over the 2D canvas
+// during a 3D run. pointerX() still measures against the 2D canvas's rect, so
+// steering sensitivity is exactly the 2D game's on every screen.
+for (const el of [cv, document.getElementById("r3dStage")]) {
+el.addEventListener("touchstart", e => {
   if (!G.running) return;
   touchAnchorX = pointerX(e); orbAnchorX = G.px;
   e.preventDefault();
 }, {passive:false});
-cv.addEventListener("touchmove", e => {
+el.addEventListener("touchmove", e => {
   if (!G.running || touchAnchorX === null) return;
   const flip = G.mod === "mirror" ? -1 : 1;
   G.targetX = orbAnchorX + (pointerX(e) - touchAnchorX) * 1.2 * flip;
   e.preventDefault();
 }, {passive:false});
-cv.addEventListener("touchend", () => { touchAnchorX = null; });
+el.addEventListener("touchend", () => { touchAnchorX = null; });
 // Desktop cursor is visible, so absolute follow stays right for the mouse.
-cv.addEventListener("mousemove",  e => {
+el.addEventListener("mousemove",  e => {
   if (!G.running) return;
   G.targetX = G.mod === "mirror" ? W - pointerX(e) : pointerX(e);
 });
+}
 const keys = {};
 addEventListener("keydown", e => { keys[e.key] = true; });
 addEventListener("keyup",   e => { keys[e.key] = false; });
@@ -2425,6 +2483,7 @@ function show(id) {
     // wipe the last game frame: a subpixel seam at the stage edge let the
     // frozen run bleed through as a strip of neon walls (Felix, 2026-09-24)
     cx.clearRect(0, 0, W, H);
+    document.getElementById("r3d").classList.add("off");   // 3D layer shows only during a run
     document.getElementById(id).classList.remove("hidden");
     if (id === "home") fitHome();
   }
@@ -2998,7 +3057,11 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20260927-laser-ease";
+const BUILD = "20260928-3d";
+// 3D renderer: fetched at page load (not at run start) so the first run isn't
+// slow. Versioned by BUILD so a deploy never pairs a new page with a cached
+// old r3d.js. Any failure just leaves window.R3D unset = 2D runs.
+if (!NO3D) import("./r3d.js?v=" + BUILD).catch(e => { window.R3D_ERR = String((e && e.message) || e); });
 const PTR = { y0: null, x0: 0, d: 0, busy: false, fit: null };
 const PTR_GO = 64, PTR_MAX = 110;
 function ptrScreen() {
