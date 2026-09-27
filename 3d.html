@@ -33,20 +33,14 @@
   header.hidden { display: none; }        /* collapsed during a run + on results: play area gets the space */
   .tag { font-size: 10px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
   .tag b { color: var(--cyan); letter-spacing: 3px; text-shadow: 0 0 8px var(--cyan); }
-  /* single scrollable row -- 14 games never push layout height, just scroll sideways */
+  /* all 14 games as a wrapping grid -- no sideways scrolling needed (the page
+     blocks touchmove so steering never scrolls the page, which also killed swipe) */
   .picker {
-    display: flex; gap: 6px; margin-top: 8px; padding: 0 8px 4px; overflow-x: auto; overflow-y: hidden;
-    scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch;
-    justify-content: flex-start;
-    /* .over centers children on their intrinsic size -- without a hard width
-       the row's true (way-wider-than-the-phone) content width wins and the
-       parent just centers that oversized box, clipping both edges instead of
-       giving this element its own scrollable viewport. */
-    width: 100%; max-width: 100%;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; padding: 0 8px 4px;
+    width: 100%; max-width: 420px; box-sizing: border-box;
   }
-  .picker::-webkit-scrollbar { display: none; }
   .picker button {
-    flex: none; width: 76px; padding: 7px 2px; font: inherit; font-size: 9.5px; letter-spacing: .5px;
+    min-width: 0; padding: 7px 2px; font: inherit; font-size: 9.5px; letter-spacing: .5px;
     color: var(--ink); background: var(--panel); border: 1px solid #2a2650; border-radius: 8px; cursor: pointer;
   }
   .picker button.on { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px rgba(255,201,60,.35); text-shadow: 0 0 6px rgba(255,201,60,.6); }
@@ -91,7 +85,7 @@
     .detail { font-size: 13px; line-height: 2; }
     .bigbtn { padding: 18px 58px; font-size: 21px; margin-top: 10px; }
     .picker { margin-top: 14px; gap: 8px; }
-    .picker button { width: 84px; padding: 9px 2px; font-size: 10.5px; }
+    .picker button { padding: 9px 2px; font-size: 10px; }
   }
   #rotate {
     position: fixed; inset: 0; z-index: 60; display: none; flex-direction: column; align-items: center;
@@ -127,7 +121,6 @@
       <div class="how" id="stHow"></div>
       <div class="twist" id="stTwist"></div>
       <button class="bigbtn" id="goBtn" disabled>LOADING</button>
-      <button class="pill" id="glowBtn">GLOW: BLOOM</button>
       <div class="picker" id="picker">
         <button data-g="gauntlet">GAUNTLET</button>
         <button data-g="laser">LASER</button>
@@ -1527,14 +1520,7 @@ function setPickerEnabled(on) {
 }
 function showStart() {
   const at = AT(), g = GAMES[PICK], tw = twistLabel(PICK, at.mod);
-  let onBtn = null;
-  for (const b of document.querySelectorAll("#picker button")) {
-    const on = b.dataset.g === PICK; b.classList.toggle("on", on); if (on) onBtn = b;
-  }
-  // keep the picker's scroll position deterministic (some browsers otherwise
-  // land on an arbitrary snap point on first paint) and bring the active game
-  // into view whenever it's picked from off-screen.
-  if (onBtn) onBtn.scrollIntoView({ inline: "nearest", block: "nearest" });
+  for (const b of document.querySelectorAll("#picker button")) b.classList.toggle("on", b.dataset.g === PICK);
   $("stName").textContent = g.name;
   $("stHow").textContent = g.howto;
   $("stTwist").textContent = `TODAY'S TWIST: ${tw.name} // ${tw.desc}`;
@@ -1605,8 +1591,8 @@ const BG = new THREE.Color(0x07060f);
 scene.fog = new THREE.Fog(BG, 700, 900);
 const camera = new THREE.PerspectiveCamera(60, 1, 5, 6000);
 
-// ---- glow modes: BLOOM (UnrealBloomPass) or LITE (additive halo sprites only) ----
-let MODE = QS.get("glow") === "lite" ? "lite" : "bloom";
+// ---- glow: always BLOOM (Felix 2026-09-27: no toggle, leave it on) ----
+let MODE = "bloom";
 let autoLite = false;
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
@@ -2347,7 +2333,6 @@ function drawHud(showRunHud) {
 function applyMode() {
   const bl = MODE === "bloom";
   for (const s of halos) s.material.opacity = s.userData.op[bl ? 1 : 0];
-  document.getElementById("glowBtn").textContent = "GLOW: " + (bl ? "BLOOM" : "LITE") + (autoLite ? " (AUTO)" : "");
 }
 function present() {
   if (MODE === "bloom") composer.render(); else renderer.render(scene, camera);
@@ -2483,11 +2468,6 @@ window.R3D = {
     runFrames++;
     if (runFrames > 20) { perf.intervals.push(frameMs); perf.cpu.push(cpu); }
     if (MEASURE) measure(py);
-    // BLOOM that can't hold ~60fps drops itself to LITE once, early in the first run
-    if (MODE === "bloom" && !autoLite && perf.intervals.length === 90) {
-      const s = [...perf.intervals].sort((a, b) => a - b), med = s[s.length >> 1];
-      if (med > 19.5) { MODE = "lite"; autoLite = true; applyMode(); }
-    }
   },
   still, measureReport,
   perfReport() {
@@ -2498,7 +2478,6 @@ window.R3D = {
   setMode(m) { MODE = m; autoLite = false; applyMode(); if (!G.running) still(); },
   info() { return { renderer: renderer.getContext().getParameter(renderer.getContext().VERSION), cam: CAMFIT, fog: [scene.fog.near, scene.fog.far] }; },
 };
-document.getElementById("glowBtn").addEventListener("click", () => window.R3D.setMode(MODE === "bloom" ? "lite" : "bloom"));
 new ResizeObserver(() => resize()).observe(stage);
 addEventListener("resize", resize);
 applyMode();
