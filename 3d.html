@@ -1578,6 +1578,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
 const W = 400, H = 700, PY = H * 0.78;
 const X = x => x - 200, Z = y => y - PY;
@@ -1609,6 +1610,12 @@ renderer.setClearColor(0x07060f, 1);
 const scene = new THREE.Scene();
 const BG = new THREE.Color(0x07060f);
 scene.fog = new THREE.Fog(BG, 700, 900);
+// Paint the sky with scene.background, NOT just the clear colour: three r169
+// clears the composer's linear render target with the clear colour already
+// sRGB-encoded, so OutputPass encodes it twice and #07060f comes out as a flat
+// lavender slab (~#2e2a45) anywhere no geometry covers -- the whole sky on FOG
+// days, when the horizon backdrop used to be hidden (Felix, 2026-10-01).
+scene.background = BG;
 const camera = new THREE.PerspectiveCamera(60, 1, 5, 6000);
 
 // ---- glow: always BLOOM (Felix 2026-09-27: no toggle, leave it on) ----
@@ -1616,6 +1623,38 @@ let MODE = "bloom";
 let autoLite = false;
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+/* Long track (Felix 2026-10-01, "why is the track so short?"): the floor
+   (ground, track, grid, rails) is unfogged all the way to the horizon, and the
+   fog now hides hazards by covering them with FLOOR instead of fading them to
+   black. floorRT = the same frame with only the FLOOR layer (floor + sky);
+   fogMix blends the full frame toward it by the fog factor of the floor point
+   under each pixel (the same smoothstep three's fog uses, on view depth). Any
+   hazard point sits at or above the floor, so it is nearer than the floor
+   point behind it and its old fog factor was <= this one: nothing can show
+   earlier than before, and empty floor blends with itself (no seam). Runs
+   before bloom, so a hidden hazard's glow never leaks. */
+const FLOOR = 1;
+const floorRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+const fogMix = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, tFloor: { value: floorRT.texture }, uInvProj: { value: new THREE.Matrix4() },
+    uCamWorld: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uNear: { value: 0 }, uFar: { value: 1 },
+    uZBack: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse, tFloor; uniform mat4 uInvProj, uCamWorld; uniform vec3 uCamPos;
+    uniform float uNear, uFar, uZBack; varying vec2 vUv;
+    void main(){
+      vec4 p = uInvProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+      vec3 dv = normalize(p.xyz / p.w), dw = (uCamWorld * vec4(dv, 0.0)).xyz;
+      float f = 1.0;                                  // sky / past the floor: floor layer only
+      if (dw.y < -1e-5) {
+        float t = -uCamPos.y / dw.y;
+        if (uCamPos.z + dw.z * t > uZBack) f = smoothstep(uNear, uFar, -dv.z * t);
+      }
+      gl_FragColor = mix(texture2D(tDiffuse, vUv), texture2D(tFloor, vUv), f);
+    }`,
+});
+fogMix.uniforms.tFloor.value = floorRT.texture;              // ShaderPass clones uniforms: re-point at the live RT
+composer.addPass(fogMix);
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.35, 0.32);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -1663,6 +1702,11 @@ const horizonTex = canvasTex(8, 512, (g, w, h) => {      // bottom = fog colour,
   gr.addColorStop(0, "#07060f"); gr.addColorStop(.10, "#1c0a33"); gr.addColorStop(.30, "#5a0f5c");
   gr.addColorStop(.42, "#3a0b4c"); gr.addColorStop(.75, "#120a26"); gr.addColorStop(1, "#07060f");
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  // feathered foot: the backdrop draws over the world now, so let the last
+  // fog-coloured rows of the course show through instead of a cut line
+  const ft = g.createLinearGradient(0, h, 0, h * 0.9);
+  ft.addColorStop(0, "rgba(0,0,0,0)"); ft.addColorStop(1, "rgba(0,0,0,1)");
+  g.globalCompositeOperation = "destination-in"; g.fillStyle = ft; g.fillRect(0, 0, w, h);
 });
 const sunTex = canvasTex(256, 256, (g, w) => {
   const r = w / 2 - 2, sg = g.createLinearGradient(0, 0, 0, w);
@@ -1671,12 +1715,17 @@ const sunTex = canvasTex(256, 256, (g, w) => {
   g.globalCompositeOperation = "destination-out";           // retro stripes, thicker toward the bottom
   for (let i = 0; i < 7; i++) g.fillRect(0, w * (.55 + i * .065), w, 2 + i * 1.7);
 });
+// Drawn LAST, over everything (2026-10-01): anything past the fog renders in
+// the fog colour, and tall far pieces (windmill blades, tunnel walls, gust
+// chevrons) poked over the horizon as dark silhouettes. Only fully fogged
+// world ever projects into the sky band (a hazard would have to stand 80+ px
+// tall at FOG_NEAR to reach it), so covering it hides nothing the player needs.
 const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0),
-  new THREE.MeshBasicMaterial({ map: horizonTex, fog: false, depthWrite: false }));
-backdrop.position.set(0, -2, Z_BACK); backdrop.renderOrder = -2; scene.add(backdrop);
+  new THREE.MeshBasicMaterial({ map: horizonTex, fog: false, depthWrite: false, depthTest: false, transparent: true }));
+backdrop.position.set(0, -2, Z_BACK); backdrop.renderOrder = 10; scene.add(backdrop);
 const sunDisc = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
-  new THREE.MeshBasicMaterial({ map: sunTex, transparent: true, opacity: 0.8, fog: false, depthWrite: false }));
-sunDisc.renderOrder = -1; scene.add(sunDisc);
+  new THREE.MeshBasicMaterial({ map: sunTex, transparent: true, opacity: 0.8, fog: false, depthWrite: false, depthTest: false }));
+sunDisc.renderOrder = 11; scene.add(sunDisc);
 // fit the backdrop to whatever band of sky this screen shape leaves above the course
 const _ray = new THREE.Raycaster();
 function fitBackdrop() {
@@ -1702,31 +1751,110 @@ function fitBackdrop() {
   sunDisc.scale.set(size, size, 1);
   sunDisc.position.copy(base).addScaledVector(up, lift).addScaledVector(nrm, 2);
 }
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 1200).rotateX(-Math.PI / 2), basic(0x0a0816));
+// Floor materials skip the hazard fog; they only fade to the fog colour over
+// their last ~55 px before the horizon (FLOOR_FADE, set in setFog), so the
+// grid melts into the backdrop instead of stopping on a hard, shimmering edge.
+const FLOOR_FADE = { uFadeNear: { value: 1e9 }, uFadeFar: { value: 2e9 } };
+function floorMat(m) {
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, FLOOR_FADE);
+    sh.fragmentShader = "uniform float uFadeNear, uFadeFar;\n" + sh.fragmentShader.replace("#include <fog_fragment>",
+      "#ifdef USE_FOG\n gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(uFadeNear, uFadeFar, vFogDepth));\n#endif");
+  };
+  return m;
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 1200).rotateX(-Math.PI / 2), floorMat(basic(0x0a0816)));
 ground.position.set(0, -1, Z_BACK + 600); scene.add(ground);
-const track = new THREE.Mesh(new THREE.PlaneGeometry(400, 1200).rotateX(-Math.PI / 2), basic(0x0e0b24));
+const track = new THREE.Mesh(new THREE.PlaneGeometry(400, 1200).rotateX(-Math.PI / 2), floorMat(basic(0x0e0b24)));
 track.position.set(0, -0.5, Z_BACK + 600); scene.add(track);
 const grid = new THREE.Group(); scene.add(grid);
 {
   const inPts = [], outPts = [];
   for (let x = -600; x <= 1000; x += 40) {                    // lengthwise lines
     const arr = (x >= 0 && x <= 400) ? inPts : outPts;
-    arr.push(X(x), 0, 400, X(x), 0, Z_BACK);
+    arr.push(X(x), 0, 400, X(x), 0, Z_BACK - 40);         // past the foot at any scroll
   }
-  for (let z = 400; z >= Z_BACK + 40; z -= 40) {                    // crosswise lines (these scroll)
+  for (let z = 400; z >= Z_BACK - 40; z -= 40) {                    // crosswise lines (these scroll)
     inPts.push(X(0), 0, z, X(400), 0, z);
     outPts.push(X(-600), 0, z, X(0), 0, z, X(400), 0, z, X(1000), 0, z);
   }
   const seg = (pts, color, opacity) => {
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+    return new THREE.LineSegments(g, floorMat(new THREE.LineBasicMaterial({ color, transparent: true, opacity })));
   };
   grid.add(seg(inPts, 0x19e3ff, 0.30));
   grid.add(seg(outPts, 0xb040ff, 0.16));
 }
+const rails = [];
 for (const x of [0, 400]) {                                   // glowing magenta rails
-  const r = new THREE.Mesh(unitBox, basic(0xff2ea6)); r.scale.set(3, 3, 1300); r.position.set(X(x), 0, Z_BACK + 650); scene.add(r);
-  const s = new THREE.Mesh(flatQuad, add(0xff2ea6, 0.35, rectTex)); s.scale.set(34, 1, 1300); s.position.set(X(x), 0.3, Z_BACK + 650); scene.add(s);
+  const r = new THREE.Mesh(unitBox, floorMat(basic(0xff2ea6))); r.scale.set(3, 3, 1300); r.position.set(X(x), 0, Z_BACK + 650); scene.add(r);
+  const s = new THREE.Mesh(flatQuad, floorMat(add(0xff2ea6, 0.35, rectTex))); s.scale.set(34, 1, 1300); s.position.set(X(x), 0.3, Z_BACK + 650); scene.add(s);
+  r.layers.enable(FLOOR); s.layers.enable(FLOOR); rails.push(r, s);
+}
+for (const o of [ground, track, ...grid.children, backdrop, sunDisc]) o.layers.enable(FLOOR);   // the floor-only layer fogMix blends toward
+
+/* FOG-day mist (Felix 2026-10-01: "put some fog in that empty space"). It
+   lives ONLY on the FLOOR layer, so it reaches the screen solely through
+   fogMix's mix(frame, floorLayer, f): zero inside fog.near (play area clear,
+   hazards never later), and wherever it shows the hazards were already being
+   blended away to the same degree (never earlier). Two drifting wisp sheets
+   low over the track that thicken with distance, plus a bank on the horizon
+   that softens the sun's lower half. Hidden on every other twist. */
+const wispTex = canvasTex(256, 256, (g, w, h) => {          // tileable soft blobs, stretched sideways
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 46; i++) {
+    const x = rnd() * w, y = rnd() * h, r = 14 + rnd() * 40, a = 0.35 + rnd() * 0.5;
+    for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {
+      g.save(); g.translate(x + dx, y + dy); g.scale(2.4, 1);
+      const gr = g.createRadialGradient(0, 0, 0, 0, 0, r);
+      gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = gr; g.fillRect(-r, -r, 2 * r, 2 * r); g.restore();
+    }
+  }
+});
+wispTex.wrapS = wispTex.wrapT = THREE.RepeatWrapping;
+const rampTex = (stops) => canvasTex(4, 256, (g, w, h) => {  // alphaMap reads GREEN: grey ramp, top = far
+  const gr = g.createLinearGradient(0, h, 0, 0);
+  for (const [t, a] of stops) { const v = Math.round(a * 255); gr.addColorStop(t, `rgb(${v},${v},${v})`); }
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const mist = new THREE.Group(); scene.add(mist);
+const mistSheets = [];
+for (const [y, color, op, rep, ramp] of [
+  [2, 0x1c0f30, 1.0, null, [[0, 0], [.25, .5], [.6, .85], [.9, 1], [1, 0]]],        // base haze: grid sinks into it
+  [6, 0x8a4ab8, 0.9, [3, 2.2], [[0, 0], [.2, .55], [.6, .9], [.9, .8], [1, 0]]],      // violet wisps
+  [20, 0x2fa0b0, 0.45, [2, 1.4], [[0, 0], [.3, .4], [.75, .8], [.9, .6], [1, 0]]]]) {  // teal wisps above them
+  const map = rep ? wispTex.clone() : null; if (map) { map.repeat.set(...rep); map.needsUpdate = true; }
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1600, -Z_BACK + 40).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color, map, alphaMap: rampTex(ramp), transparent: true, opacity: op,
+      depthWrite: false, depthTest: false, fog: false }));
+  // drawn after the sky + sun (11) so the far mist rolls over the horizon line; the bank (12) tops it
+  m.position.set(0, y, (Z_BACK - 40) / 2); m.layers.set(FLOOR); m.renderOrder = 11.5;
+  mist.add(m); mistSheets.push(m);
+}
+const bank = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0),
+  new THREE.MeshBasicMaterial({ color: 0x8a4ab8, map: wispTex.clone(), alphaMap: rampTex([[0, 0], [.16, .9], [.4, .7], [.75, .2], [1, 0]]),
+    transparent: true, opacity: 1, depthWrite: false, depthTest: false, fog: false }));
+bank.material.map.repeat.set(5, 1); bank.material.map.needsUpdate = true;
+bank.renderOrder = 12; bank.layers.set(FLOOR); mist.add(bank);       // over the sun, under nothing
+function fitMist() {                                         // the bank hugs the backdrop's foot
+  bank.quaternion.copy(backdrop.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(backdrop.quaternion);
+  bank.position.copy(backdrop.position).addScaledVector(new THREE.Vector3(0, 0, 1).applyQuaternion(backdrop.quaternion), 3)
+    .addScaledVector(up, -backdrop.scale.y * 0.06);         // foot dips below the horizon: no seam with the sheets
+  bank.scale.set(4000, backdrop.scale.y * 0.42, 1);
+}
+function driftMist() {                                       // slow sideways drift only
+  const t = G.t;
+  // Felix 2026-10-01: "make the fog move", then "horizontal instead of
+  // vertical", then "it looks like it's swaying very slightly left to right".
+  // Both sheets now roll the SAME way at clearly visible, parallaxed speeds
+  // (two sheets crossing opposite ways plus an opacity swell read as a sway, and
+  // the camera's own follow sway swallowed it). Floor layer only, so the
+  // fairness argument above is unchanged.
+  mistSheets[1].material.map.offset.set(t * 0.45, 0);
+  mistSheets[2].material.map.offset.set(t * 0.65, 0.37);
+  bank.material.map.offset.set(t * 0.2, 0);
 }
 
 // ---- pools ----
@@ -1868,8 +1996,10 @@ const chevTexR = canvasTex(32, 16, (g2, w, h) => { g2.strokeStyle = "#ffc93c"; g
   g2.beginPath(); g2.moveTo(5, 2); g2.lineTo(w - 5, h / 2); g2.lineTo(5, h - 2); g2.stroke(); });
 const chevTexL = canvasTex(32, 16, (g2, w, h) => { g2.strokeStyle = "#ffc93c"; g2.lineWidth = 4; g2.lineCap = "round";
   g2.beginPath(); g2.moveTo(w - 5, 2); g2.lineTo(5, h / 2); g2.lineTo(w - 5, h - 2); g2.stroke(); });
-const windMatR = new THREE.SpriteMaterial({ map: chevTexR, transparent: true, opacity: .8, depthWrite: false });
-const windMatL = new THREE.SpriteMaterial({ map: chevTexL, transparent: true, opacity: .8, depthWrite: false });
+// additive, like every other glow: a fogged chevron then fades to nothing
+// instead of turning into a dark "<" silhouette over the horizon backdrop
+const windMatR = new THREE.SpriteMaterial({ map: chevTexR, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending });
+const windMatL = new THREE.SpriteMaterial({ map: chevTexL, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending });
 const windPool = pool(() => { const s = new THREE.Sprite(windMatR); s.scale.set(34, 17, 1); scene.add(s); return s; });
 
 // orb: fresnel shader, white-hot core fading to magenta at the rim
@@ -1972,6 +2102,7 @@ function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   renderer.setPixelRatio(DPR); renderer.setSize(SW, SH, false);
   composer.setPixelRatio(DPR); composer.setSize(SW, SH);
+  floorRT.setSize(Math.round(SW * DPR), Math.round(SH * DPR));
   hud.width = SW * DPR; hud.height = SH * DPR; hx.setTransform(DPR, 0, 0, DPR, 0, 0);
   const fit = solveCamera(SW / SH, HUD_PX / SH);
   CAMFIT = { ...fit, aspect: SW / SH };
@@ -1987,9 +2118,19 @@ function setFog() {
   // like the 2D radial fog.
   const d0 = viewDepth(0, 0, 0);
   const per = (viewDepth(0, 0, -100) - d0) / 100;             // view depth per world px ahead
-  backdrop.visible = G.mod !== "fog"; if (G.mod === "fog") sunDisc.visible = false;
+  // FOG days keep the full horizon + sun (Felix 2026-10-01: likes the sun
+  // look); only the floor fogs. The backdrop bottom is the fog colour, so the
+  // fogged floor still melts into it and nothing past the fog shows.
+  fitBackdrop();
   if (G.mod === "fog") { scene.fog.near = d0 + 95 * per; scene.fog.far = d0 + 240 * per; }
   else { scene.fog.near = d0 + FOG_NEAR * per; scene.fog.far = d0 + FOG_FAR * per; }
+  fogMix.uniforms.uNear.value = scene.fog.near; fogMix.uniforms.uFar.value = scene.fog.far;
+  fogMix.uniforms.uZBack.value = Z_BACK;
+  mist.visible = G.mod === "fog"; fitMist();
+  // tunnel days: the walls hide the rails up close, so the long empty track
+  // past the fog must not show them either (they'd cut through the walls)
+  for (const r of rails) r.visible = PICK !== "tunnel";
+  FLOOR_FADE.uFadeNear.value = d0 + (-Z_BACK - 55) * per; FLOOR_FADE.uFadeFar.value = d0 + (-Z_BACK) * per;
 }
 
 /* ================= DRAW THE SIM STATE ================= */
@@ -2011,6 +2152,7 @@ function drawWorld(py, dt) {
   camera.lookAt(camX + jx, 0, -CAMFIT.lookZ);
   camera.updateMatrixWorld();
   grid.position.z = scroll % 40;
+  if (mist.visible) driftMist();
 
   // orb (blinks while invulnerable, like 2D)
   orb.position.set(X(G.px), 0, 0);
@@ -2307,6 +2449,8 @@ function drawWind() {
       if (!inView(yy, 10)) continue;
       for (let k = 0; k < 4; k++) {
         const xx = ((k * 100 + r * 37 + G.t * z.dir * 130) % (W + 80) + (W + 80)) % (W + 80) - 40;
+        // fully fogged = invisible anyway; skip it so nothing floats over the sky
+        if (viewDepth(X(xx), 40, Z(yy)) >= scene.fog.far) continue;
         const s = windPool.next();
         s.material = z.dir > 0 ? windMatR : windMatL;
         s.position.set(X(xx), 40, Z(yy));
@@ -2360,8 +2504,15 @@ function applyMode() {
   const bl = MODE === "bloom";
   for (const s of halos) s.material.opacity = s.userData.op[bl ? 1 : 0];
 }
-function present() {
-  if (MODE === "bloom") composer.render(); else renderer.render(scene, camera);
+function renderFloor() {                                    // floor-only layer for fogMix, same camera
+  const u = fogMix.uniforms;
+  u.uInvProj.value.copy(camera.projectionMatrixInverse); u.uCamWorld.value.copy(camera.matrixWorld);
+  u.uCamPos.value.setFromMatrixPosition(camera.matrixWorld);
+  camera.layers.set(FLOOR); renderer.setRenderTarget(floorRT); renderer.render(scene, camera);
+  renderer.setRenderTarget(null); camera.layers.set(0);
+}
+function present() {                                       // lite = same passes, bloom off
+  bloom.enabled = MODE === "bloom"; renderFloor(); composer.render();
 }
 
 /* ================= PERF + LOOK-AHEAD MEASUREMENT ================= */
