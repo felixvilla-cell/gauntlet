@@ -652,6 +652,9 @@ const Music = (() => {
     mines:   {bpm:140,lw:"square",  bw:"triangle",pat:"sparse",prog:[[47,"min"],[43,"maj"],[42,"maj"],[47,"min"]]},
     pistons: {bpm:150,lw:"square",  bw:"square",  pat:"pedal", prog:[[40,"min"],[47,"min"],[45,"maj"],[40,"min"]]},
     turrets: {bpm:134,lw:"square",  bw:"triangle",pat:"down",  prog:[[45,"min"],[45,"min"],[43,"maj"],[41,"maj"]]},
+    // 2026-10-07 Laser Grid replacement audition (practice only until Felix picks one)
+    maze:    {bpm:126,lw:"square",  bw:"triangle",pat:"skip",  prog:[[44,"min"],[49,"min"],[47,"maj"],[44,"min"]]},
+    twins:   {bpm:142,lw:"triangle",bw:"square",  pat:"bounce",prog:[[42,"maj"],[47,"maj"],[49,"maj"],[46,"min"]]},
     // weekly champion reel: bright major victory loop (C-G-Am-F), not a game
     champ:   {bpm:132,lw:"square",  bw:"triangle",pat:"climb", prog:[[48,"maj"],[43,"maj"],[45,"min"],[41,"maj"]]},
   };
@@ -1893,6 +1896,224 @@ const GAMES = {
       }
     },
   },
+
+  /* ---- 2026-10-07 Laser Grid replacement AUDITION (Felix: "replace that level").
+     Two candidates, PRACTICE ONLY until he picks one: neither is in GAME_ORDER,
+     so no date ever schedules them; reachable via ?game=maze|twins and the
+     3d.html picker. Neither has a forced-timing window: nothing switches on a
+     clock. maze = PLAN AHEAD (read the exits early, walls lock your lane);
+     twins = SPLIT ATTENTION (a mirrored second orb must clear too). ---- */
+
+  maze: {
+    name: "DEAD ENDS",
+    howto: "walls lock your lane -- get to the open exit early",
+    modName: { drift: "LONG HALLS", squeeze: "ONE WAY OUT" },
+    modDesc: { drift: "lane walls run longer", squeeze: "one exit per wall, +250 finish bonus" },
+    reset() {
+      // Four 100px lanes. Each exit row is a full-width wall with 1-2 open
+      // lanes; lane walls run back from it `lock` px toward the orb, and once
+      // they reach you you can't change lanes until the exit row passes. The
+      // skill is reading the exit while it's still far away. Mod effects apply
+      // AFTER the rng draws so the draw sequence stays stable.
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -300, room = 9999;               // room = distance back to the previous exit row
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        const a = Math.floor(G.rng() * 4);
+        const two = G.rng() < 0.45 - 0.3 * diffP(depth);
+        const b = (a + 1 + Math.floor(G.rng() * 3)) % 4;
+        const walls = [1, 2, 3].map(() => G.rng() < 0.55 + 0.3 * diffP(depth));
+        let lock = (120 + G.rng() * 70) * (1 + 0.2 * diffP(depth));
+        if (G.mod === "drift") lock *= 1.4;
+        if (G.mod === "fog") lock *= 0.6;      // fog: the exit row shows up late, so the walls are short
+        lock = Math.max(60, Math.min(lock, room - 110));   // always 110px of free lane-change room
+        const open = (two && G.mod !== "squeeze") ? [a, b].sort((p, q) => p - q) : [a];
+        const gaps = [];                       // open lanes merged into [x0, x1] runs
+        for (const l of open) {
+          const last = gaps[gaps.length - 1];
+          if (last && last[1] === l * 100) last[1] += 100; else gaps.push([l * 100, l * 100 + 100]);
+        }
+        G.things.push({ y, gaps, walls, lock, passed: false, inLock: false, lo: 0, hi: W });
+        if (G.rng() < (G.mod === "rush" ? 0.95 : 0.65)) {
+          const cxm = gaps[0][0] + 50;         // coins sit inside the open lane's walled stretch
+          const n = G.mod === "rush" ? 3 : 2;
+          for (let i = 0; i < n; i++)
+            G.coinDots.push({ y: y + 26 + i * 30, x: cxm + (G.rng() - .5) * 30, got: false });
+        }
+        room = (280 + G.rng() * 100) * (1 - 0.12 * diffP(depth));
+        y -= room;
+      }
+    },
+    update(dt, py, vs) {
+      for (const g of G.things) g.y += vs;
+      for (const g of G.things) {
+        // walled stretch: from the exit row (g.y) back to g.y + lock
+        if (py < g.y - 12 || py > g.y + g.lock) { g.inLock = false; continue; }
+        if (!g.inLock) {                       // walls just reached the orb: this is your corridor now
+          g.inLock = true; g.lo = 0; g.hi = W;
+          for (let k = 1; k <= 3; k++) if (g.walls[k - 1]) {
+            if (G.px < k * 100) g.hi = Math.min(g.hi, k * 100); else g.lo = Math.max(g.lo, k * 100);
+          }
+        }
+        const lo = Math.max(14, g.lo + 13), hi = Math.min(W - 14, g.hi - 13);
+        G.px = Math.max(lo, Math.min(hi, G.px));
+        G.targetX = Math.max(lo, Math.min(hi, G.targetX));
+      }
+      if (G.inv <= 0) for (const g of G.things) {
+        if (Math.abs(g.y - py) < 12) {
+          const inGap = g.gaps.some(([x0, x1]) => G.px > x0 + 10 && G.px < x1 - 10);
+          if (!inGap) { takeHit(py); break; }
+        }
+      }
+      // graze: came through the exit hugging its edge
+      for (const g of G.things) {
+        if (g.passed || g.y <= py + 12) continue;
+        g.passed = true;
+        if (G.inv > 0) continue;
+        for (const [x0, x1] of g.gaps) {
+          const edge = Math.min(G.px - x0, x1 - G.px);
+          if (edge > 0 && edge < 26) { graze(G.px, py); break; }
+        }
+      }
+    },
+    render() {
+      for (const g of G.things) {
+        if (g.y > H + 20 || g.y + g.lock < -20) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        let x = 0;                             // exit row: wall over every closed stretch
+        for (const [x0, x1] of g.gaps) { if (x0 > x) cx.fillRect(x, g.y - 7, x0 - x, 14); x = x1; }
+        if (x < W) cx.fillRect(x, g.y - 7, W - x, 14);
+        cx.fillStyle = "#0a7f93";              // lane walls
+        for (let k = 1; k <= 3; k++) if (g.walls[k - 1]) cx.fillRect(k * 100 - 3, g.y, 6, g.lock);
+        cx.shadowBlur = 0;
+        cx.fillStyle = "#e8e6ff";              // exit posts
+        for (const [x0, x1] of g.gaps) for (const ex of [x0, x1])
+          if (ex > 0 && ex < W) cx.fillRect(ex - 2, g.y - 7, 4, 14);
+      }
+    },
+  },
+
+  twins: {
+    name: "DOUBLE TROUBLE",
+    howto: "your twin mirrors you -- keep both of you clear",
+    modName: { drift: "SLIDING BLOCKS", squeeze: "BIG BLOCKS" },
+    modDesc: { drift: "blocks slide side to side", squeeze: "wider blocks, +250 finish bonus" },
+    fogX() { return W / 2; },                  // 2D fog lights both orbs, not just yours
+    bx(b) { return b.x + (b.amp ? Math.sin(G.t * 1.6 + b.ph) * b.amp : 0); },
+    // widest stretch of orb positions that clears every block for BOTH orbs
+    room(blocks) {
+      const bad = [];
+      for (const b of blocks) {
+        const x0 = b.x - b.amp - 10, x1 = b.x + b.w + b.amp + 10;
+        bad.push([x0, x1], [W - x1, W - x0]);
+      }
+      bad.sort((p, q) => p[0] - q[0]);
+      let best = [0, 0], at = 14;
+      for (const [x0, x1] of bad) {
+        if (x0 > at && x0 - at > best[1] - best[0]) best = [at, Math.min(x0, W - 14)];
+        at = Math.max(at, x1);
+      }
+      if (W - 14 - at > best[1] - best[0]) best = [at, W - 14];
+      return best;
+    },
+    reset() {
+      // Rows of short blocks. Your twin rides at W - px, so every block is
+      // really two no-go zones: the block itself and its mirror image.
+      const total = avgCourseSpeed() * RUN_SECS() * 1.15;
+      let y = -220;
+      while (y > -total) {
+        const depth = Math.min(1, -y / total);
+        const n = G.rng() < 0.3 + 0.5 * diffP(depth) ? 2 : 1;
+        let blocks = [];
+        for (let i = 0; i < n; i++) {
+          let w = 56 + G.rng() * 44;
+          const x = G.rng() * (W - w);
+          const amp = 16 + G.rng() * 14, ph = G.rng() * 6.28;
+          if (G.mod === "squeeze") w *= 1.3;
+          blocks.push({ x: Math.min(x, W - w), w, amp: G.mod === "drift" ? amp : 0, ph });
+        }
+        // keep it fair: always a 48px-wide safe spot (drop the 2nd block, then shrink)
+        let r = this.room(blocks);
+        if (r[1] - r[0] < 48 && blocks.length > 1) { blocks = [blocks[0]]; r = this.room(blocks); }
+        while (r[1] - r[0] < 48) { blocks[0].w *= 0.8; r = this.room(blocks); }
+        G.obstacles.push({ y, blocks, passed: false });
+        if (G.rng() < (G.mod === "rush" ? 0.92 : 0.6)) {
+          const sx = (r[0] + r[1]) / 2;        // a coin for you, and one for your twin
+          G.coinDots.push({ y: y - 46, x: sx, got: false });
+          if (Math.abs(sx - W / 2) > 24) G.coinDots.push({ y: y - 46, x: W - sx, got: false });
+        }
+        y -= (140 + G.rng() * 70) * (1 - 0.15 * diffP(depth));
+      }
+    },
+    update(dt, py, vs) {
+      for (const o of G.obstacles) o.y += vs;
+      const tx = W - G.px;
+      if (G.inv <= 0) for (const o of G.obstacles) {
+        if (Math.abs(o.y - py) >= 12) continue;
+        let hx = null;
+        for (const b of o.blocks) {
+          const x0 = this.bx(b), x1 = x0 + b.w;
+          if (G.px > x0 - 10 && G.px < x1 + 10) { hx = G.px; break; }
+          if (tx > x0 - 10 && tx < x1 + 10) { hx = tx; break; }
+        }
+        if (hx !== null) { if (hx !== G.px) burst(hx, py, "#ff2ea6"); takeHit(py); break; }
+      }
+      // graze: either orb skimmed a block edge
+      for (const o of G.obstacles) {
+        if (o.passed || o.y <= py + 12) continue;
+        o.passed = true;
+        if (G.inv > 0) continue;
+        let near = 99, nx = G.px;
+        for (const b of o.blocks) {
+          const x0 = this.bx(b), x1 = x0 + b.w;
+          for (const x of [G.px, tx]) {
+            const e = x < x0 ? x0 - x : x > x1 ? x - x1 : 99;
+            if (e < near) { near = e; nx = x; }
+          }
+        }
+        if (near > 10 && near < 30) graze(nx, py);
+      }
+      // the twin collects coins too (same pull, pickup and combo as your orb)
+      const pullR = G.magnet ? 110 : 42;
+      const pullV = G.magnet ? worldSpeed() + 230 : 170;
+      for (const c of G.coinDots) {
+        if (c.got) continue;
+        const dx = tx - c.x, dy = py - c.y, d = Math.hypot(dx, dy);
+        if (d > 0 && d < pullR) { c.x += dx / d * pullV * dt; c.y += dy / d * pullV * dt; }
+        if (d < 24) {
+          c.got = true; G.coins++; burst(c.x, c.y, "#ffc93c");
+          G.combo++; G.bestCombo = Math.max(G.bestCombo, G.combo);
+          const tier = comboTier();
+          G.coinPts += (G.mod === "rush" ? 20 : 10) * tier;
+          if (G.combo >= 8 && G.combo % 8 === 0 && tier > 1)
+            floatText(c.x, c.y - 20, "COMBO x" + tier, "#ffc93c");
+        }
+      }
+    },
+    render(py) {
+      cx.globalAlpha = .22; cx.fillStyle = "#ff2ea6";          // the mirror line
+      for (let y = ((G.t * 120) % 28) - 28; y < H; y += 28) cx.fillRect(W / 2 - 1, y, 2, 14);
+      cx.globalAlpha = 1;
+      for (const o of G.obstacles) {
+        if (o.y < -20 || o.y > H + 20) continue;
+        cx.shadowColor = "#19e3ff"; cx.shadowBlur = 14;
+        cx.fillStyle = "#0fbcd8";
+        for (const b of o.blocks) cx.fillRect(this.bx(b), o.y - 7, b.w, 14);
+        cx.shadowBlur = 0;
+      }
+      const blink = G.inv > 0 && Math.floor(G.t * 12) % 2 === 0;
+      if (!blink) {                                             // your twin
+        const tx = W - G.px;
+        cx.shadowColor = "#ff2ea6"; cx.shadowBlur = 22;
+        cx.fillStyle = "#ff2ea6";
+        cx.beginPath(); cx.arc(tx, py, 12, 0, 7); cx.fill();
+        cx.fillStyle = "#fff";
+        cx.beginPath(); cx.arc(tx, py, 5, 0, 7); cx.fill();
+        cx.shadowBlur = 0;
+      }
+    },
+  },
 };
 
 function takeHit(py) {
@@ -2132,11 +2353,25 @@ function draw(py) {
   }
   // FOG day: the world only exists near your orb.
   if (G.mod === "fog") {
+    // DOUBLE TROUBLE (audition) has two orbs: its fog is an oval centred
+    // between them, stretched sideways to light both but reaching no farther
+    // ahead than usual. Every other game takes the original branch unchanged.
+    if (G.game.fogX) {
+      const fx = G.game.fogX(), sx = 1 + Math.abs(fx - G.px) / 95;
+      cx.save(); cx.translate(fx, py); cx.scale(sx, 1);
+      const g = cx.createRadialGradient(0, 0, 95, 0, 0, 240);
+      g.addColorStop(0, "rgba(7,6,15,0)");
+      g.addColorStop(1, "rgba(7,6,15,0.97)");
+      cx.fillStyle = g;
+      cx.fillRect(-W, -H, 2 * W, 2 * H);
+      cx.restore();
+    } else {
     const g = cx.createRadialGradient(G.px, py, 95, G.px, py, 240);
     g.addColorStop(0, "rgba(7,6,15,0)");
     g.addColorStop(1, "rgba(7,6,15,0.97)");
     cx.fillStyle = g;
     cx.fillRect(0, 0, W, H);
+    }
   }
   cx.restore();
   if (G.attract) return;          // reel footage shows the course, not a run
@@ -3057,7 +3292,7 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20261001-sky";
+const BUILD = "20261007-audition";
 // 3D renderer: fetched at page load (not at run start) so the first run isn't
 // slow. Versioned by BUILD so a deploy never pairs a new page with a cached
 // old r3d.js. Any failure just leaves window.R3D unset = 2D runs.

@@ -451,6 +451,22 @@ const orbHalo = halo(0xff2ea6, 96, 0.6, 0.28); orbHalo.position.y = 12;
 const orbSpill = new THREE.Mesh(flatQuad, add(0xff2ea6, 0.7)); orbSpill.scale.set(110, 1, 110); orbSpill.position.y = 0.5;
 orb.add(orbBall, orbHalo, orbSpill);
 
+/* ---- 2026-10-07 Laser Grid replacement audition: DEAD ENDS (maze) and DOUBLE
+   TROUBLE (twins). Same rule as every game above: draw the verbatim sim state,
+   never feed anything back. ---- */
+// maze: lane walls are long low boxes running down the track from each exit row
+const laneWallPool = pool(() => {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(unitBox, barMats); m.add(new THREE.LineSegments(unitEdges, edgeMat));
+  const spill = new THREE.Mesh(flatQuad, add(0x19e3ff, 0.4, rectTex)); spill.position.y = 0.4;
+  g.add(m, spill); g.userData = { m, spill }; scene.add(g); return g;
+});
+// twins: your mirrored second orb + a dashed mirror line down the middle of the track
+const twinOrb = orb.clone(); twinOrb.visible = false; scene.add(twinOrb);
+const mirrorMat = new THREE.MeshBasicMaterial({ color: 0xff2ea6, transparent: true, opacity: 0.35,
+  blending: THREE.AdditiveBlending, depthWrite: false });
+const mirrorPool = pool(() => { const m = new THREE.Mesh(flatQuad, mirrorMat); scene.add(m); return m; });
+
 // tunnel walls: one dynamic mesh (vertex colours) + a bright inner-edge line per side
 const T_ROWS = 110, WALL_H = 32;
 const tunPos = new Float32Array(T_ROWS * 2 * 18 * 3), tunCol = new Float32Array(T_ROWS * 2 * 18 * 3);
@@ -603,7 +619,7 @@ function drawWorld(py, dt) {
   laserSegPool.begin(); laserNodePool.begin(); capPool.begin(); flagPool.begin();
   ballPool.begin(); hubPool.begin(); bladePool.begin(); mineBodyPool.begin();
   mineRingPool.begin(); blastPool.begin(); phantomPool.begin(); turretPool.begin();
-  barrelPool.begin(); bulletPool.begin(); windPool.begin();
+  barrelPool.begin(); bulletPool.begin(); windPool.begin(); laneWallPool.begin(); mirrorPool.begin();
   tunMesh.visible = tunEdgeL.visible = tunEdgeR.visible = false;
   const gid = GID;
   if (gid === "gauntlet") {
@@ -653,12 +669,19 @@ function drawWorld(py, dt) {
     drawTurrets();
   } else if (gid === "wind") {
     drawWind();
+  } else if (gid === "maze") {
+    drawMaze();
+  } else if (gid === "twins") {
+    drawTwins();
   }
+  // DOUBLE TROUBLE: your twin rides the mirror image of your lane (blinks with you)
+  twinOrb.visible = gid === "twins" && orb.visible;
+  if (twinOrb.visible) twinOrb.position.set(X(W - G.px), 0, 0);
   barPool.end(); rockPool.end(); dronePool.end(); tunSpill.end();
   laserSegPool.end(); laserNodePool.end(); capPool.end(); flagPool.end();
   ballPool.end(); hubPool.end(); bladePool.end(); mineBodyPool.end();
   mineRingPool.end(); blastPool.end(); phantomPool.end(); turretPool.end();
-  barrelPool.end(); bulletPool.end(); windPool.end();
+  barrelPool.end(); bulletPool.end(); windPool.end(); laneWallPool.end(); mirrorPool.end();
 
   // sparks (render-rate life, as in 2D draw)
   let n = 0;
@@ -890,6 +913,36 @@ function drawWind() {
   }
 }
 
+function drawMaze() {
+  for (const g of G.things) {
+    if (!inView(g.y + g.lock / 2, g.lock / 2 + 20)) continue;
+    let x = 0;                                               // exit row: walls over the closed lanes
+    for (const [x0, x1] of g.gaps) { barPiece(x, x0, g.y); x = x1; }
+    barPiece(x, W, g.y);
+    for (const [x0, x1] of g.gaps) for (const ex of [x0, x1]) {   // white posts mark each exit
+      if (ex <= 0 || ex >= W) continue;
+      const c = capPool.next(); c.position.set(X(ex), 11, Z(g.y)); c.scale.set(4, 22, 16);
+    }
+    for (let k = 1; k <= 3; k++) if (g.walls[k - 1]) {       // lane walls, exit row back toward the orb
+      const lw = laneWallPool.next(), { m, spill } = lw.userData;
+      lw.position.set(X(k * 100), 0, Z(g.y + g.lock / 2));
+      m.scale.set(6, 16, g.lock); spill.scale.set(30, 1, g.lock + 16);
+    }
+  }
+}
+function drawTwins() {
+  for (const o of G.obstacles) {
+    if (!inView(o.y)) continue;
+    for (const b of o.blocks) { const x0 = GAMES.twins.bx(b); barPiece(x0, x0 + b.w, o.y); }
+  }
+  // dashed mirror line (2D draws the same dashes, scrolling with the run clock)
+  const off = (G.t * 120) % 28;
+  for (let y = off - 28 - 700; y < H + 200; y += 28) {
+    if (!inView(y + 7, 10)) continue;
+    const d = mirrorPool.next(); d.position.set(0, 0.6, Z(y + 7)); d.scale.set(3, 1, 14);
+  }
+}
+
 /* ================= HUD (2D overlay, same layout as the live HUD) ================= */
 const _p = new THREE.Vector3();
 function toScreen(x, y, z) { _p.set(x, y, z).project(camera); return [(_p.x + 1) / 2 * SW, (1 - _p.y) / 2 * SH, _p.z]; }
@@ -956,7 +1009,8 @@ function measure(py) {
     }
     return false;
   };
-  const fog2 = (x, y) => G.mod !== "fog" || Math.hypot(x - G.px, y - py) < 167;   // 2D radial fog half-alpha
+  const fog2 = (x, y) => G.mod !== "fog" || ((GID === "twins")      // 2D radial fog half-alpha (twins: the oval between both orbs)
+    ? Math.hypot((x - W / 2) / (1 + Math.abs(G.px - W / 2) / 95), y - py) < 167 : Math.hypot(x - G.px, y - py) < 167);
   const track = (key, s2, s3, reached) => {
     let e = vis.get(key); if (!e) { e = { t2: null, t3: null, tReach: null }; vis.set(key, e); }
     if (e.t2 === null && s2) e.t2 = G.t;
@@ -1023,6 +1077,24 @@ function measure(py) {
   // turrets: the aim telegraph is a HUD line keyed directly to the shared
   // sim's t.aiming flag (see drawHud), so its reveal instant is byte-identical
   // between 2D and 3D by construction -- no separate lead/lag to measure.
+  if (GID === "maze") G.things.forEach((g, i) => {
+    if (g.y < -900) return;
+    // exit row, and (separately) the near end of its lane walls -- the walls reach you first
+    const s2 = g.y + 7 > 0 && fog2(Math.max(0, Math.min(W, G.px)), g.y);
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(g.y) - BAR_D / 2, Z(g.y) + BAR_D / 2);
+    track(g, s2, s3, g.y > py - 12);
+    if (!g.walls.some(Boolean)) return;
+    const yn = g.y + g.lock;
+    const w2 = yn > 0 && fog2(Math.max(0, Math.min(W, G.px)), yn);
+    const w3 = seen3(X(100), X(300), 0, 16, Z(yn) - 2, Z(yn));
+    track("mw" + i, w2, w3, yn > py);
+  });
+  if (GID === "twins") for (const o of G.obstacles) {
+    if (o.y < -900) continue;
+    const s2 = o.y + 7 > 0 && fog2(Math.max(0, Math.min(W, G.px)), o.y);
+    const s3 = seen3(X(0), X(W), 0, BAR_H, Z(o.y) - BAR_D / 2, Z(o.y) + BAR_D / 2);
+    track(o, s2, s3, o.y > py - 12);
+  }
   if (GID === "meteor") for (const r of G.rocks) {
     if (r.y < -900) continue;
     track(r, r.y + r.r > 0 && fog2(r.x, r.y), seen3(X(r.x - r.r), X(r.x + r.r), 0, 2 * r.r, Z(r.y) - r.r, Z(r.y) + r.r), r.y > py - r.r - 10);
