@@ -144,9 +144,9 @@
         <button data-g="pistons">PISTONS</button>
         <button data-g="turrets">TURRETS</button>
       </div>
-      <!-- 2026-10-07 audition: the two Laser Grid replacements Felix is choosing between -->
+      <!-- 2026-10-07: the two Laser Grid replacements; Felix picked both, live in the rotation from Mon Oct 19 -->
       <div class="newgames">
-        <div class="newtag">NEW // LASER GRID REPLACEMENTS</div>
+        <div class="newtag">NEW // IN THE ROTATION OCT 19</div>
         <div class="picker picker2" id="picker2">
           <button data-g="maze">DEAD ENDS</button>
           <button data-g="twins">DOUBLE TROUBLE</button>
@@ -1354,10 +1354,10 @@ const GAMES = {
     },
   },
 
-  /* ---- 2026-10-07 Laser Grid replacement AUDITION (Felix: "replace that level").
-     Two candidates, PRACTICE ONLY until he picks one: neither is in GAME_ORDER,
-     so no date ever schedules them; reachable via ?game=maze|twins and the
-     3d.html picker. Neither has a forced-timing window: nothing switches on a
+  /* ---- 2026-10-07 Laser Grid replacements (Felix: "replace that level").
+     He picked BOTH: index.html's GAME_ORDER2 schedules them from Mon Oct 19
+     2026 (maze = Tue Oct 20, twins = game 15). This page picks by PICK, not by
+     date, so it needs no rotation logic. Neither has a forced-timing window: nothing switches on a
      clock. maze = PLAN AHEAD (read the exits early, walls lock your lane);
      twins = SPLIT ATTENTION (a mirrored second orb must clear too). ---- */
 

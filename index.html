@@ -943,6 +943,18 @@ function daysSinceAnchor(now = new Date()) {
 const GAME_ORDER = ["gauntlet", "laser", "hunter", "crushers", "tunnel",
                     "slalom", "phantom", "pong", "meteor", "windmill",
                     "wind", "mines", "pistons", "turrets"];
+// 2026-10-07 (Felix picked BOTH Laser Grid replacements): from Mon Oct 19 2026
+// -- a cycle boundary, slot 0 of the 14-order -- the rotation is 15 games.
+// DEAD ENDS (maze) takes laser's slot, so Tue Oct 20 is its first day, and
+// DOUBLE TROUBLE (twins) is added between meteor and windmill (away from maze
+// and from the bar/block games). Laser leaves the rotation but stays in GAMES
+// for past-day replays and ?game=laser practice. Every date before
+// ORDER2_FROM keeps the 14-order exactly (boards + champion reel unchanged).
+const ORDER2_FROM = "20261019";
+const ORDER2_DAY = (Date.UTC(2026, 9, 19) - ROT_ANCHOR) / 86400000;   // 98
+const GAME_ORDER2 = ["gauntlet", "maze", "hunter", "crushers", "tunnel",
+                     "slalom", "phantom", "pong", "meteor", "twins",
+                     "windmill", "wind", "mines", "pistons", "turrets"];
 const WEEK_ORDER = ["gauntlet", "tunnel", "meteor", "laser"];   // legacy weekly
 const currentGame = () => {
   const forced = qs.get("game");            // ?game=tunnel -- testing/practice
@@ -953,7 +965,9 @@ const currentGame = () => {
 // champion reel names the game each past day actually ran.
 function gameForDate(at) {
   if (V2()) {
-    const i = daysSinceAnchor(at) % GAME_ORDER.length;
+    const d = daysSinceAnchor(at);
+    if (d >= ORDER2_DAY) return GAMES[GAME_ORDER2[(d - ORDER2_DAY) % GAME_ORDER2.length]];
+    const i = d % GAME_ORDER.length;
     return GAMES[GAME_ORDER[(i + GAME_ORDER.length) % GAME_ORDER.length]];
   }
   const w = Math.floor(daysSinceAnchor(at) / 7) + 1;
@@ -1897,10 +1911,10 @@ const GAMES = {
     },
   },
 
-  /* ---- 2026-10-07 Laser Grid replacement AUDITION (Felix: "replace that level").
-     Two candidates, PRACTICE ONLY until he picks one: neither is in GAME_ORDER,
-     so no date ever schedules them; reachable via ?game=maze|twins and the
-     3d.html picker. Neither has a forced-timing window: nothing switches on a
+  /* ---- 2026-10-07 Laser Grid replacements (Felix: "replace that level").
+     He picked BOTH: in GAME_ORDER2 from Mon Oct 19 2026 (maze = Tue Oct 20,
+     twins added as game 15); before that, practice only via ?game=maze|twins
+     and the 3d.html picker. Neither has a forced-timing window: nothing switches on a
      clock. maze = PLAN AHEAD (read the exits early, walls lock your lane);
      twins = SPLIT ATTENTION (a mirrored second orb must clear too). ---- */
 
@@ -2735,7 +2749,7 @@ function modDisplay() {
 // game + twist label for a past date, as that day's home screen showed it
 function dayCard(at) {
   const g = gameForDate(at), m = modForDate(at);
-  return { gameId: GAME_ORDER.find(k => GAMES[k] === g) || "gauntlet", game: g.name, mod: m.id,
+  return { gameId: Object.keys(GAMES).find(k => GAMES[k] === g) || "gauntlet", game: g.name, mod: m.id,
            twist: g.modName[m.id] || m.name };
 }
 function fitHome() {
@@ -3292,7 +3306,7 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20261007-audition";
+const BUILD = "20261007-rot15";
 // 3D renderer: fetched at page load (not at run start) so the first run isn't
 // slow. Versioned by BUILD so a deploy never pairs a new page with a cached
 // old r3d.js. Any failure just leaves window.R3D unset = 2D runs.
