@@ -2879,8 +2879,12 @@ async function savePushSub() {
     const j = sub.toJSON(), keys = j.keys || {};
     if (!j.endpoint || !keys.p256dh || !keys.auth) return false;
     const key = "s" + (await sha256(j.endpoint)).slice(0, 16);
-    const mark = `${room}|${key}`;
-    const last = (safeGet("g2:pushSaved:" + pid) || "").split("#");
+    // One cache per DEVICE with the player in the mark: switching players on a
+    // phone re-claims it at once. A per-player cache let a phone picked as
+    // Adelina for one game (Oct 25) stay hers after switching back to Papi,
+    // so Felix got alerts about his own runs (2026-10-26).
+    const mark = `${room}|${key}|${pid}`;
+    const last = (safeGet("g2:pushSaved") || "").split("#");
     if (last[0] === mark && Date.now() - (+last[1] || 0) < 86400000) return true;   // saved today already
     const url = `${fsBase()}/rooms/${encodeURIComponent(room)}/push/${pid}` +
       `?updateMask.fieldPaths=subs.${key}&key=${CFG.firebase.apiKey}`;
@@ -2892,7 +2896,7 @@ async function savePushSub() {
     }}}}}}}};
     const r = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) return false;
-    safeSet("g2:pushSaved:" + pid, mark + "#" + Date.now());
+    safeSet("g2:pushSaved", mark + "#" + Date.now());
     return true;
   } catch { return false; }
 }
@@ -3306,7 +3310,7 @@ document.addEventListener("visibilitychange", () => {
 // (Felix, 2026-09-24: he was force-closing the app to see new scores).
 // If a newer build is live, the pull reloads the page instead, so an update
 // lands without the swipe-closed-and-reopen dance.
-const BUILD = "20261007-rot15";
+const BUILD = "20261026-pushowner";
 // 3D renderer: fetched at page load (not at run start) so the first run isn't
 // slow. Versioned by BUILD so a deploy never pairs a new page with a cached
 // old r3d.js. Any failure just leaves window.R3D unset = 2D runs.
